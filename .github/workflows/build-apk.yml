@@ -37,10 +37,10 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 生成 Android 平台壳
+      - name: 生成平台壳
         run: |
-          flutter create --platforms=android --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
-          cp -r "$RUNNER_TEMP/shell/android" .
+          flutter create --platforms=android,ios,windows,macos --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
+          cp -r "$RUNNER_TEMP/shell/android" "$RUNNER_TEMP/shell/ios" "$RUNNER_TEMP/shell/windows" "$RUNNER_TEMP/shell/macos" .
           flutter pub get
 
       - name: 写入品牌信息与图标
