@@ -144,7 +144,10 @@ lib/
 ├── widgets/                  # 海报卡、状态视图、品牌 Logo
 └── pages/                    # 首页/分类/搜索/详情/播放器/收藏/历史/设置/源管理
 test/parsers_test.dart        # 播放串与订阅解析单测
-tool/apply_branding.ps1       # 平台品牌落地脚本
+tool/apply_branding.ps1       # Windows 本机品牌落地脚本
+tool/apply_branding.sh        # Linux/macOS 品牌落地入口（CI 使用）
+tool/patch_branding.py        # 跨平台品牌信息写入（包名、权限、显示名）
+.github/workflows/build-apk.yml  # GitHub Actions 在线构建 APK
 ```
 
 ---
@@ -169,3 +172,19 @@ tool/apply_branding.ps1       # 平台品牌落地脚本
 3. 无下载、投屏、弹幕、DRM。
 4. 源站多为 http，务必开启明文流量。
 5. 图标、品牌名已落地，但应用商店所需的截图、隐私政策、软件著作权材料仍需自行准备。
+
+---
+
+## 八、在线构建 APK（GitHub Actions）
+
+仓库已内置 `.github/workflows/build-apk.yml`，推送到 `main` 或手动触发即会在 Ubuntu 上打包出通用 release APK，无需本机装 Flutter/Android SDK。
+
+流程：checkout → JDK 17 → Flutter 3.24.5 stable → `flutter create --platforms=android` 生成平台壳（只拷回 `android/`，不动 `lib/main.dart`）→ `flutter pub get` → `bash tool/apply_branding.sh` → `flutter build apk --release` → 上传 `app-release.apk`。
+
+下载方式：仓库 **Actions → 对应一次运行 → Artifacts → `yingshu-apk-<run_number>`**。产物保留 30 天。
+
+注意：
+
+1. 脚本会把 `applicationId` 改为 `com.yingshu.player`，并同步搬动 `MainActivity` 的包路径，否则运行时会找不到启动 Activity。
+2. CI 里没有签名文件，产出的是 debug key 签名的 release 包，可直接安装；上架或长期分发请自行配置 `signingConfig`。
+3. 没有 Flutter SDK 时不要在本机执行 `flutter build`，交给 CI。
