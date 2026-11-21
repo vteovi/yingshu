@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../models/episode.dart';
 import '../state/app_state.dart';
+import '../theme/app_palette.dart';
 
 /// 单页播放器：media_kit(libmpv) 内核，支持 HLS / 直链 / 倍速 / 连播 / 断点续播。
 class PlayerPage extends StatefulWidget {
@@ -228,7 +229,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           '${widget.groupName} · 共 ${widget.episodes.length} 集',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: Colors.white38),
+                          style: TextStyle(fontSize: 12, color: context.palette.textFaint),
                         ),
                       ),
                       IconButton(
@@ -256,7 +257,7 @@ class _PlayerPageState extends State<PlayerPage> {
                                 child: Center(
                                   child: Text(
                                     '${i + 1}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.white38),
+                                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
                                   ),
                                 ),
                               ),
@@ -266,7 +267,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,
-                            color: selected ? Colors.white : Colors.white70,
+                            color: selected ? context.palette.textPrimary : context.palette.textSecondary,
                             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                           ),
                         ),
@@ -329,11 +330,11 @@ class _PlayerPageState extends State<PlayerPage> {
             valueListenable: _buffering,
             builder: (context, buffering, child) {
               if (!buffering) return const SizedBox.shrink();
-              return const Center(
+              return Center(
                 child: SizedBox(
                   width: 32,
                   height: 32,
-                  child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white70),
+                  child: CircularProgressIndicator(strokeWidth: 2.4, color: context.palette.textSecondary),
                 ),
               );
             },
@@ -362,7 +363,7 @@ class _PlayerPageState extends State<PlayerPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline_rounded, size: 44, color: Colors.white54),
+                Icon(Icons.error_outline_rounded, size: 44, color: context.palette.textSecondary),
                 const SizedBox(height: 12),
                 const Text('播放失败', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
@@ -371,13 +372,13 @@ class _PlayerPageState extends State<PlayerPage> {
                   maxLines: 4,
                   textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, height: 1.5, color: Colors.white54),
+                  style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   '提示：只支持 m3u8 / mp4 等直链，若返回的是网页地址需要在源侧解析。',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: Colors.white38),
+                  style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                 ),
                 const SizedBox(height: 18),
                 Row(
@@ -446,7 +447,7 @@ class _PlayerPageState extends State<PlayerPage> {
                                 '${widget.episodes[_index].name} · ${widget.groupName}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11, color: Colors.white54),
+                                style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
                               ),
                             ],
                           );
@@ -490,15 +491,15 @@ class _PlayerPageState extends State<PlayerPage> {
                         IconButton(
                           onPressed: _index > 0 ? () => _switchEpisode(_index - 1) : null,
                           icon: const Icon(Icons.skip_previous_rounded, size: 22),
-                          color: Colors.white,
-                          disabledColor: Colors.white24,
+                          color: context.palette.textPrimary,
+                          disabledColor: context.palette.textFaint,
                         ),
                         ValueListenableBuilder<bool>(
                           valueListenable: _playing,
                           builder: (context, playing, child) {
                             return IconButton(
                               iconSize: 34,
-                              color: Colors.white,
+                              color: context.palette.textPrimary,
                               onPressed: () {
                                 if (playing) {
                                   _player.pause();
@@ -518,8 +519,8 @@ class _PlayerPageState extends State<PlayerPage> {
                               ? () => _switchEpisode(_index + 1)
                               : null,
                           icon: const Icon(Icons.skip_next_rounded, size: 22),
-                          color: Colors.white,
-                          disabledColor: Colors.white24,
+                          color: context.palette.textPrimary,
+                          disabledColor: context.palette.textFaint,
                         ),
                         const Spacer(),
                         PopupMenuButton<double>(
@@ -542,7 +543,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             child: Text(
                               '${_rate.toStringAsFixed(_rate == 1.0 ? 1 : 2)}×',
-                              style: const TextStyle(fontSize: 13, color: Colors.white70),
+                              style: TextStyle(fontSize: 13, color: context.palette.textSecondary),
                             ),
                           ),
                         ),
@@ -582,8 +583,8 @@ class _PlayerPageState extends State<PlayerPage> {
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 2.4,
                 activeTrackColor: const Color(0xFF9F7CFF),
-                inactiveTrackColor: Colors.white24,
-                thumbColor: Colors.white,
+                inactiveTrackColor: context.palette.textFaint,
+                thumbColor: context.palette.textPrimary,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
               ),
@@ -609,12 +610,12 @@ class _PlayerPageState extends State<PlayerPage> {
                 children: [
                   Text(
                     _formatDuration(_dragging ? Duration(milliseconds: _dragValue.round()) : position),
-                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                    style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
                   ),
                   const Spacer(),
                   Text(
                     duration.inMilliseconds > 0 ? _formatDuration(duration) : '--:--',
-                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                    style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
                   ),
                 ],
               ),

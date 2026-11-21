@@ -1,16 +1,19 @@
 import 'dart:convert';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../data/subscription.dart';
+import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_mark.dart';
 import '../widgets/state_views.dart';
 import 'source_edit_page.dart';
+import '../theme/app_palette.dart';
 
 /// 订阅源列表：新增 / 编辑 / 启用停用 / 删除 / 批量导入导出。
 class SourcesPage extends StatelessWidget {
@@ -34,14 +37,18 @@ class SourcesPage extends StatelessWidget {
                 case 'url':
                   _importUrl(context, app);
                   break;
+                case 'file':
+                  _importFile(context, app);
+                  break;
                 case 'copy':
                   _copyConfig(context, app);
                   break;
               }
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(value: 'text', child: Text('粘贴文本导入')),
-              PopupMenuItem(value: 'url', child: Text('从订阅链接导入')),
+              PopupMenuItem(value: 'url', child: Text('从订阅链接导入（支持 TVBox）')),
+              PopupMenuItem(value: 'text', child: Text('粘贴文本 / TVBox 配置导入')),
+              PopupMenuItem(value: 'file', child: Text('从本地 JSON 文件导入')),
               PopupMenuDivider(),
               PopupMenuItem(value: 'copy', child: Text('复制源配置（JSON）')),
             ],
@@ -116,7 +123,8 @@ class SourcesPage extends StatelessWidget {
             controller: controller,
             maxLines: 8,
             decoration: const InputDecoration(
-              hintText: '每行一条：\n站点名,https://xxx.com/api.php/provide/vod/\n也支持直接粘贴 JSON 数组',
+              hintText: '每行一条：站点名,https://xxx.com/api.php/provide/vod/\n'
+                  '也可以直接粘贴影枢 JSON 或 TVBox 配置（含 sites / urls）',
             ),
           ),
         ),
@@ -132,15 +140,79 @@ class SourcesPage extends StatelessWidget {
     Future<void>.delayed(const Duration(milliseconds: 500), controller.dispose);
     if (text == null || text.trim().isEmpty) return;
 
-    final parsed = parseSubscriptionText(text);
-    if (parsed.isEmpty) {
+    await _importBundleText(context, app, text);
+  }
+
+  /// 粘贴内容可能是 TVBox 配置：先落库 sites，再把 urls 里的子配置拉下来。
+  Future<void> _importBundleText(BuildContext context, AppState app, String text) async {
+    final bundle = parseSourceBundle(text);
+    if (bundle.isEmpty) {
       if (!context.mounted) return;
       _snack(context, '没有解析到有效的接口地址');
       return;
     }
-    final added = await app.importSources(parsed);
+
+    var added = await app.importSources(bundle.sources);
+    for (final url in bundle.subscriptionUrls) {
+      try {
+        added += await app.importFromUrl(url);
+      } catch (_) {
+        // 单个子配置失败不影响其它源
+      }
+    }
     if (!context.mounted) return;
     _snack(context, added == 0 ? '这些源都已存在，未新增' : '导入成功，新增 $added 个源');
+  }
+
+  /// 本地 JSON / TXT 文件导入（TVBox 配置文件、影枢导出文件都可以）。
+  Future<void> _importFile(BuildContext context, AppState app) async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: true,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      _snack(context, '打开文件选择器失败：$error');
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.single;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      if (!context.mounted) return;
+      _snack(context, '读取文件失败，请换一个文件试试');
+      return;
+    }
+
+    String text;
+    try {
+      text = utf8.decode(bytes, allowMalformed: true);
+    } catch (_) {
+      if (!context.mounted) return;
+      _snack(context, '文件不是 UTF-8 文本，无法解析');
+      return;
+    }
+
+    final bundle = parseSourceBundle(text);
+    if (bundle.isEmpty) {
+      if (!context.mounted) return;
+      _snack(context, '「${file.name}」里没有找到可用的接口地址');
+      return;
+    }
+
+    var added = await app.importSources(bundle.sources);
+    for (final url in bundle.subscriptionUrls) {
+      try {
+        added += await app.importFromUrl(url);
+      } catch (_) {}
+    }
+    if (!context.mounted) return;
+    _snack(context, added == 0
+        ? '「${file.name}」里的源都已存在'
+        : '从「${file.name}」导入成功，新增 $added 个源');
   }
 
   Future<void> _importUrl(BuildContext context, AppState app) async {
@@ -212,8 +284,11 @@ class _SourceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.surface,
-      borderRadius: BorderRadius.circular(14),
+      color: context.palette.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: context.palette.border),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
@@ -256,7 +331,7 @@ class _SourceCard extends StatelessWidget {
                       source.api,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11, color: Colors.white38),
+                      style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                     ),
                     if (source.note.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -264,7 +339,7 @@ class _SourceCard extends StatelessWidget {
                         source.note,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: Colors.white54),
+                        style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
                       ),
                     ],
                   ],
@@ -273,7 +348,7 @@ class _SourceCard extends StatelessWidget {
               IconButton(
                 tooltip: '删除',
                 onPressed: onDelete,
-                icon: const Icon(Icons.delete_outline, size: 19, color: Colors.white38),
+                icon: Icon(Icons.delete_outline, size: 19, color: context.palette.textFaint),
               ),
               Switch(
                 value: source.enabled,

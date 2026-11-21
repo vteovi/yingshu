@@ -1,6 +1,6 @@
 const String kAppName = '影枢';
 const String kAppNameEn = 'CineHub';
-const String kAppVersion = '0.1.0';
+const String kAppVersion = '0.2.0';
 const String kAppPackage = 'com.yingshu.player';
 
 /// 部分苹果CMS站点会校验 UA，默认伪装成桌面浏览器。

@@ -5,6 +5,7 @@ import '../core/constants.dart';
 import '../models/cms_source.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_palette.dart';
 
 /// 新增 / 编辑单个订阅源，保存前可以先做一次连通性探测。
 class SourceEditPage extends StatefulWidget {
@@ -128,9 +129,9 @@ class _SourceEditPageState extends State<SourceEditPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
-            const Text(
+            Text(
               '苹果CMS v10 采集接口地址，一般形如：\nhttps://你的域名/api.php/provide/vod/',
-              style: TextStyle(fontSize: 12, height: 1.6, color: Colors.white54),
+              style: TextStyle(fontSize: 12, height: 1.6, color: context.palette.textSecondary),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -173,9 +174,9 @@ class _SourceEditPageState extends State<SourceEditPage> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('启用此源'),
-              subtitle: const Text(
+              subtitle: Text(
                 '停用后不参与首页与聚合搜索',
-                style: TextStyle(fontSize: 12, color: Colors.white38),
+                style: TextStyle(fontSize: 12, color: context.palette.textFaint),
               ),
               value: _enabled,
               onChanged: (value) => setState(() => _enabled = value),
@@ -211,7 +212,7 @@ class _SourceEditPageState extends State<SourceEditPage> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppTheme.surface,
+                  color: context.palette.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: (_testOk ?? false) ? const Color(0xFF3FBF8F) : const Color(0xFFCF6679),
@@ -230,7 +231,7 @@ class _SourceEditPageState extends State<SourceEditPage> {
                     Expanded(
                       child: Text(
                         _testResult!,
-                        style: const TextStyle(fontSize: 12, height: 1.5, color: Colors.white70),
+                        style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
                       ),
                     ),
                   ],

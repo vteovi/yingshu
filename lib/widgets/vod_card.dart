@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/vod.dart';
+import '../theme/app_palette.dart';
 
 /// 海报卡片：2:3 封面 + 备注角标 + 片名。
 class VodCard extends StatelessWidget {
@@ -57,9 +58,9 @@ class VodCard extends StatelessWidget {
                           vod.remarks,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
-                            color: Colors.white,
+                            color: context.palette.textPrimary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -74,11 +75,11 @@ class VodCard extends StatelessWidget {
             vod.name,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               height: 1.25,
               fontWeight: FontWeight.w500,
-              color: Colors.white,
+              color: context.palette.textPrimary,
             ),
           ),
           if (footer != null && footer!.isNotEmpty)
@@ -106,11 +107,11 @@ class _Poster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final placeholder = Container(
-      color: const Color(0xFF1B1B24),
+      color: context.palette.surfaceHigh,
       alignment: Alignment.center,
       child: Text(
         name.isEmpty ? '无海报' : name.substring(0, 1),
-        style: const TextStyle(fontSize: 26, color: Colors.white24, fontWeight: FontWeight.w700),
+        style: TextStyle(fontSize: 26, color: context.palette.textFaint, fontWeight: FontWeight.w700),
       ),
     );
 
@@ -119,7 +120,7 @@ class _Poster extends StatelessWidget {
       imageUrl: pic,
       fit: BoxFit.cover,
       fadeInDuration: const Duration(milliseconds: 200),
-      placeholder: (_, __) => const ColoredBox(color: Color(0xFF1B1B24)),
+      placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
       errorWidget: (_, __, ___) => placeholder,
     );
   }

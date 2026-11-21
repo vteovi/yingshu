@@ -1,9 +1,10 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
 import '../data/cms_api.dart';
 import '../data/local_store.dart';
 import '../data/subscription.dart';
+import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
 import '../models/media_record.dart';
 import '../models/vod.dart';
@@ -24,11 +25,13 @@ class AppState extends ChangeNotifier {
   String _userAgent = kDefaultUserAgent;
   bool _autoPlayNext = true;
   bool _rememberProgress = true;
+  ThemeMode _themeMode = ThemeMode.dark;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
   bool get autoPlayNext => _autoPlayNext;
   bool get rememberProgress => _rememberProgress;
+  ThemeMode get themeMode => _themeMode;
 
   List<CmsSource> get sources => List.unmodifiable(_sources);
   List<CmsSource> get enabledSources =>
@@ -76,9 +79,21 @@ class AppState extends ChangeNotifier {
     _autoPlayNext = settings['autoPlayNext'] is bool ? settings['autoPlayNext'] as bool : true;
     _rememberProgress =
         settings['rememberProgress'] is bool ? settings['rememberProgress'] as bool : true;
+    _themeMode = _parseThemeMode(settings['themeMode']);
     _api.userAgent = _userAgent;
 
     notifyListeners();
+  }
+
+  static ThemeMode _parseThemeMode(Object? raw) {
+    switch (raw?.toString()) {
+      case 'light':
+        return ThemeMode.light;
+      case 'system':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.dark;
+    }
   }
 
   // ------------------------------------------------------------------ 订阅源
@@ -162,6 +177,11 @@ class AppState extends ChangeNotifier {
   Future<int> importFromUrl(String url) async {
     final list = await _fetcher.fetch(url);
     return importSources(list);
+  }
+
+  /// 导入粘贴内容 / 本地配置文件内容（支持 TVBox 配置与自有格式）。
+  Future<int> importFromText(String text) async {
+    return importSources(parseSourceBundle(text).sources);
   }
 
   Future<void> _persistSources() {
@@ -311,11 +331,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setThemeMode(ThemeMode mode) async {
+    if (_themeMode == mode) return;
+    _themeMode = mode;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> _persistSettings() {
     return _store.writeMap(LocalStore.keySettings, {
       'userAgent': _userAgent,
       'autoPlayNext': _autoPlayNext,
       'rememberProgress': _rememberProgress,
+      'themeMode': _themeMode.name,
     });
   }
 }

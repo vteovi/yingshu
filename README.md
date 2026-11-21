@@ -4,7 +4,7 @@
 
 - 应用名：**影枢**（CineHub）
 - 包名：`com.yingshu.player`
-- 版本：`0.1.0+1`
+- 版本：`0.2.0+2`
 - 目标平台：Android / iOS / Windows / macOS（同一套代码）
 - 播放内核：`media_kit`（libmpv），支持 HLS(m3u8)、mp4 等直链
 - 订阅格式：`https://域名/api.php/provide/vod/`
@@ -108,7 +108,8 @@ tool/apply_branding.ps1 # 平台品牌信息与图标落地脚本
 
 **订阅源管理**
 - 添加 / 编辑 / 删除 / 启用停用，保存前可「测试连接」，直接显示分类数与最新数据条数
-- 批量导入：粘贴多行 `名称,接口地址`、粘贴 JSON 数组、从订阅链接拉取（兼容 `{sites:[...]}` / `{list:[...]}`）
+- 批量导入四种方式：粘贴多行 `名称,接口地址`、粘贴 JSON / TVBox 配置、从订阅链接拉取、从本地 JSON/TXT 文件导入
+- 兼容 TVBox 配置：`sites` 里的 `api` / `ext` 自动换算成苹果CMS接口，`urls` 里的子配置会逐层拉取（最多 3 层）
 - 一键复制全部源配置为 JSON
 - 删除源时连带清理该源的收藏与历史
 
@@ -127,6 +128,7 @@ tool/apply_branding.ps1 # 平台品牌信息与图标落地脚本
 **收藏 / 历史 / 设置**
 - 收藏、历史独立页，长按或侧滑删除、可清空
 - 自定义请求 UA、连播开关、记忆进度开关
+- 外观三档：深色（OLED 纯黑，背景与卡片均为 `#000000`，屏幕不发光）/ 浅色 / 跟随系统
 
 ---
 
@@ -179,12 +181,29 @@ tool/patch_branding.py        # 跨平台品牌信息写入（包名、权限、
 
 仓库已内置 `.github/workflows/build-apk.yml`，推送到 `main` 或手动触发即会在 Ubuntu 上打包出通用 release APK，无需本机装 Flutter/Android SDK。
 
-流程：checkout → JDK 17 → 最新 Flutter stable → `flutter create --platforms=android,ios,windows,macos` 生成平台壳（不动 `lib/main.dart`）→ `flutter pub get` → `bash tool/apply_branding.sh` → `flutter build apk --release` → 上传 `app-release.apk`。
+流程：checkout → JDK 17 → 最新 Flutter stable → `flutter create --platforms=android,ios,windows,macos` 生成平台壳 → `flutter pub get` → `bash tool/apply_branding.sh` → `flutter build apk --release --split-per-abi` → `bash tool/sign_apk.sh`（有签名密钥则用 `apksigner` 正式重签）→ 上传 Artifact → 发布 GitHub Release。
 
-下载方式：仓库 **Actions → 对应一次运行 → Artifacts → `yingshu-apk-<run_number>`**。产物保留 30 天。
+产物按 CPU 架构拆分：`yingshu-<版本>-arm64-v8a.apk` / `armeabi-v7a` / `x86_64`，装 arm64 那个即可，单包约 35～40 MB。
+
+下载方式：
+
+1. GitHub **Releases** 页面直接下载（长期留存）。
+2. **Actions → 对应一次运行 → Artifacts → `yingshu-apk-<run_number>`**（保留 30 天）。
+
+### 正式签名（可选）
+
+仓库 Secrets 里配好下面四项后，CI 会用正式密钥重签：
+
+| Secret | 含义 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | PKCS12 密钥库的 base64 文本 |
+| `KEYSTORE_PASSWORD` | 密钥库密码 |
+| `KEY_PASSWORD` | 密钥密码 |
+
+密钥可由 `python3 tool/gen_keystore.py` 生成（本机无需 JDK），产物是 `yingshu-release.p12`。**密钥库和密码不要提交进仓库**，一旦丢失就无法给已安装的 App 做覆盖升级。
 
 注意：
 
 1. 脚本会把 `applicationId` 改为 `com.yingshu.player`，并同步搬动 `MainActivity` 的包路径，否则运行时会找不到启动 Activity。
-2. CI 里没有签名文件，产出的是 debug key 签名的 release 包，可直接安装；上架或长期分发请自行配置 `signingConfig`。
+2. 未配置签名 Secrets 时产出的是 debug key 签名的 release 包，可直接安装；配置后由 `apksigner` 重签成正式签名。
 3. 没有 Flutter SDK 时不要在本机执行 `flutter build`，交给 CI。

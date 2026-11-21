@@ -11,6 +11,7 @@ import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/state_views.dart';
 import 'player_page.dart';
+import '../theme/app_palette.dart';
 
 class DetailPage extends StatefulWidget {
   const DetailPage({
@@ -199,20 +200,20 @@ class _DetailPageState extends State<DetailPage> {
             CachedNetworkImage(
               imageUrl: pic,
               fit: BoxFit.cover,
-              placeholder: (_, __) => const ColoredBox(color: Color(0xFF1B1B24)),
-              errorWidget: (_, __, ___) => const ColoredBox(color: Color(0xFF1B1B24)),
+              placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
+              errorWidget: (_, __, ___) => ColoredBox(color: context.palette.surfaceHigh),
             )
           else
-            const ColoredBox(color: Color(0xFF1B1B24)),
-          const DecoratedBox(
+            ColoredBox(color: context.palette.surfaceHigh),
+          DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xCC0B0B0F),
-                  Color(0x880B0B0F),
-                  AppTheme.background,
+                  context.palette.background.withValues(alpha: 0.80),
+                  context.palette.background.withValues(alpha: 0.53),
+                  context.palette.background,
                 ],
                 stops: [0.0, 0.45, 1.0],
               ),
@@ -247,11 +248,11 @@ class _DetailPageState extends State<DetailPage> {
                   vod.name,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 24,
                     height: 1.25,
                     fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                    color: context.palette.textPrimary,
                   ),
                 ),
                 if (vod.metaLine.isNotEmpty) ...[
@@ -260,7 +261,7 @@ class _DetailPageState extends State<DetailPage> {
                     vod.metaLine,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, color: Colors.white60),
+                    style: TextStyle(fontSize: 13, color: context.palette.textSecondary),
                   ),
                 ],
               ],
@@ -284,7 +285,7 @@ class _DetailPageState extends State<DetailPage> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppTheme.surface,
+                color: context.palette.surface,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Column(
@@ -319,7 +320,7 @@ class _DetailPageState extends State<DetailPage> {
               ),
               const Spacer(),
               if (vod.score.isNotEmpty)
-                Text('评分 ${vod.score}', style: const TextStyle(fontSize: 12, color: Colors.white38)),
+                Text('评分 ${vod.score}', style: TextStyle(fontSize: 12, color: context.palette.textFaint)),
             ],
           ),
           const SizedBox(height: 8),
@@ -327,7 +328,7 @@ class _DetailPageState extends State<DetailPage> {
             vod.cleanContent.isEmpty ? '暂无简介' : vod.cleanContent,
             maxLines: _descriptionExpanded ? null : 4,
             overflow: _descriptionExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13, height: 1.7, color: Colors.white70),
+            style: TextStyle(fontSize: 13, height: 1.7, color: context.palette.textSecondary),
           ),
           if (hasLongContent)
             Align(
@@ -366,7 +367,7 @@ class _DetailPageState extends State<DetailPage> {
               const SizedBox(width: 8),
               Text(
                 '共 ${group.episodes.length} 集',
-                style: const TextStyle(fontSize: 12, color: Colors.white38),
+                style: TextStyle(fontSize: 12, color: context.palette.textFaint),
               ),
             ],
           ),
@@ -435,8 +436,8 @@ class _DetailPageState extends State<DetailPage> {
     return SafeArea(
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
-        decoration: const BoxDecoration(
-          color: Color(0xFF101016),
+        decoration: BoxDecoration(
+          color: context.palette.surfaceHigh,
           border: Border(top: BorderSide(color: Color(0xFF23232E))),
         ),
         child: Row(
@@ -490,14 +491,14 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 36,
-            child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.white38)),
+            child: Text(label, style: TextStyle(fontSize: 12, color: context.palette.textFaint)),
           ),
           Expanded(
             child: Text(
               value,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, height: 1.5, color: Colors.white70),
+              style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
             ),
           ),
         ],
@@ -520,7 +521,7 @@ class _EpisodeButton extends StatelessWidget {
       width: 78,
       height: 38,
       child: Material(
-        color: highlight ? theme.colorScheme.primary.withOpacity(0.22) : AppTheme.surfaceHigh,
+        color: highlight ? theme.colorScheme.primary.withOpacity(0.22) : context.palette.surfaceHigh,
         borderRadius: BorderRadius.circular(9),
         child: InkWell(
           borderRadius: BorderRadius.circular(9),
@@ -534,7 +535,7 @@ class _EpisodeButton extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
-                  color: highlight ? Colors.white : Colors.white70,
+                  color: highlight ? context.palette.textPrimary : context.palette.textSecondary,
                   fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),

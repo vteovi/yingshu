@@ -6,6 +6,7 @@ import '../models/media_record.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
 import 'detail_page.dart';
+import '../theme/app_palette.dart';
 
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
@@ -102,7 +103,7 @@ class _HistoryTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: const Color(0xFF14141A),
+          color: context.palette.surface,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
@@ -114,17 +115,17 @@ class _HistoryTile extends StatelessWidget {
                 width: 62,
                 height: 88,
                 child: item.pic.isEmpty
-                    ? const ColoredBox(
-                        color: Color(0xFF1B1B24),
-                        child: Icon(Icons.movie_outlined, color: Colors.white24, size: 22),
+                    ? ColoredBox(
+                        color: context.palette.surfaceHigh,
+                        child: Icon(Icons.movie_outlined, color: context.palette.textFaint, size: 22),
                       )
                     : CachedNetworkImage(
                         imageUrl: item.pic,
                         fit: BoxFit.cover,
-                        placeholder: (_, __) => const ColoredBox(color: Color(0xFF1B1B24)),
-                        errorWidget: (_, __, ___) => const ColoredBox(
-                          color: Color(0xFF1B1B24),
-                          child: Icon(Icons.movie_outlined, color: Colors.white24, size: 22),
+                        placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
+                        errorWidget: (_, __, ___) => ColoredBox(
+                          color: context.palette.surfaceHigh,
+                          child: Icon(Icons.movie_outlined, color: context.palette.textFaint, size: 22),
                         ),
                       ),
               ),
@@ -148,7 +149,7 @@ class _HistoryTile extends StatelessWidget {
                         visualDensity: VisualDensity.compact,
                         tooltip: '删除记录',
                         onPressed: onDelete,
-                        icon: const Icon(Icons.close, size: 16, color: Colors.white30),
+                        icon: Icon(Icons.close, size: 16, color: context.palette.textFaint),
                       ),
                     ],
                   ),
@@ -160,7 +161,7 @@ class _HistoryTile extends StatelessWidget {
                     ].join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: Colors.white54),
+                    style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
                   ),
                   const SizedBox(height: 8),
                   ClipRRect(
@@ -168,7 +169,7 @@ class _HistoryTile extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: item.progress,
                       minHeight: 3,
-                      backgroundColor: Colors.white12,
+                      backgroundColor: context.palette.textFaint,
                       color: const Color(0xFF9F7CFF),
                     ),
                   ),
@@ -180,12 +181,12 @@ class _HistoryTile extends StatelessWidget {
                           item.sourceName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 11, color: Colors.white30),
+                          style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                         ),
                       ),
                       Text(
                         _relativeTime(item.updatedAt),
-                        style: const TextStyle(fontSize: 11, color: Colors.white30),
+                        style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                       ),
                     ],
                   ),

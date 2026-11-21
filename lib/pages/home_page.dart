@@ -11,6 +11,7 @@ import 'category_page.dart';
 import 'detail_page.dart';
 import 'search_page.dart';
 import 'sources_page.dart';
+import '../theme/app_palette.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -244,7 +245,7 @@ class _HomePageState extends State<HomePage> {
                   child: Text(
                     '最近更新 ${index.videos.length} 部 · 下拉刷新',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: Colors.white38),
+                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
                   ),
                 ),
               ),
@@ -305,7 +306,7 @@ class _SourceSelector extends StatelessWidget {
                   Icon(
                     item.enabled ? Icons.check_circle : Icons.remove_circle_outline,
                     size: 16,
-                    color: item.enabled ? Colors.greenAccent : Colors.white24,
+                    color: item.enabled ? Colors.greenAccent : context.palette.textFaint,
                   ),
                   const SizedBox(width: 10),
                   Flexible(
@@ -338,7 +339,7 @@ class _SourceSelector extends StatelessWidget {
               style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
             ),
           ),
-          const Icon(Icons.expand_more, size: 20, color: Colors.white54),
+          Icon(Icons.expand_more, size: 20, color: context.palette.textSecondary),
         ],
       ),
     );

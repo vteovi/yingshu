@@ -6,6 +6,7 @@ import '../data/cms_api.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
 import 'detail_page.dart';
+import '../theme/app_palette.dart';
 
 /// 多源聚合搜索。
 class SearchPage extends StatefulWidget {
@@ -214,17 +215,17 @@ class _SearchResultTile extends StatelessWidget {
               width: 76,
               height: 106,
               child: vod.pic.isEmpty
-                  ? const ColoredBox(
-                      color: Color(0xFF1B1B24),
-                      child: Icon(Icons.movie_outlined, color: Colors.white24),
+                  ? ColoredBox(
+                      color: context.palette.surfaceHigh,
+                      child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
                     )
                   : CachedNetworkImage(
                       imageUrl: vod.pic,
                       fit: BoxFit.cover,
-                      placeholder: (_, __) => const ColoredBox(color: Color(0xFF1B1B24)),
-                      errorWidget: (_, __, ___) => const ColoredBox(
-                        color: Color(0xFF1B1B24),
-                        child: Icon(Icons.movie_outlined, color: Colors.white24),
+                      placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
+                      errorWidget: (_, __, ___) => ColoredBox(
+                        color: context.palette.surfaceHigh,
+                        child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
                       ),
                     ),
             ),
@@ -245,7 +246,7 @@ class _SearchResultTile extends StatelessWidget {
                   vod.metaLine.isEmpty ? '暂无信息' : vod.metaLine,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: Colors.white54, height: 1.4),
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary, height: 1.4),
                 ),
                 if (vod.actor.isNotEmpty) ...[
                   const SizedBox(height: 4),
@@ -253,7 +254,7 @@ class _SearchResultTile extends StatelessWidget {
                     '主演：${vod.actor}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: Colors.white38),
+                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -271,9 +272,9 @@ class _SearchResultTile extends StatelessWidget {
               ],
             ),
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(left: 8, top: 34),
-            child: Icon(Icons.chevron_right, color: Colors.white24, size: 20),
+            child: Icon(Icons.chevron_right, color: context.palette.textFaint, size: 20),
           ),
         ],
       ),

@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import '../widgets/state_views.dart';
 import '../widgets/vod_card.dart';
 import 'detail_page.dart';
+import '../theme/app_palette.dart';
 
 /// 分类列表：分页无限加载。
 class CategoryPage extends StatefulWidget {
@@ -109,7 +110,7 @@ class _CategoryPageState extends State<CategoryPage> {
             child: Center(
               child: Text(
                 widget.source.name,
-                style: const TextStyle(fontSize: 12, color: Colors.white38),
+                style: TextStyle(fontSize: 12, color: context.palette.textFaint),
               ),
             ),
           ),
@@ -198,7 +199,7 @@ class _CategoryPageState extends State<CategoryPage> {
     if (!_hasMore) {
       return Text(
         '共 ${_items.length} 部 · 已经到底了',
-        style: const TextStyle(fontSize: 12, color: Colors.white38),
+        style: TextStyle(fontSize: 12, color: context.palette.textFaint),
       );
     }
     return const SizedBox(height: 12);

@@ -1,50 +1,66 @@
 import 'package:flutter/material.dart';
 
+import 'app_palette.dart';
+
+/// 主题工厂：深色为 OLED 纯黑，浅色为白底。
 class AppTheme {
   static const Color seed = Color(0xFF8B5CF6);
-  static const Color background = Color(0xFF0B0B0F);
-  static const Color surface = Color(0xFF14141A);
-  static const Color surfaceHigh = Color(0xFF1D1D26);
+  static const Color seedDark = Color(0xFF9F7CFF);
 
-  static ThemeData dark() {
+  static ThemeData dark() => _build(AppPalette.oled, Brightness.dark);
+  static ThemeData light() => _build(AppPalette.light, Brightness.light);
+
+  static ThemeData _build(AppPalette palette, Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final primary = isDark ? seedDark : seed;
     final scheme = ColorScheme.fromSeed(
       seedColor: seed,
-      brightness: Brightness.dark,
+      brightness: brightness,
     ).copyWith(
-      surface: surface,
-      primary: const Color(0xFF9F7CFF),
-      secondary: const Color(0xFF62D6C6),
+      primary: primary,
+      secondary: const Color(0xFF3FBFAE),
+      surface: palette.surface,
+      onSurface: palette.textPrimary,
+      outline: palette.border,
     );
 
     return ThemeData(
       useMaterial3: true,
+      brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: background,
+      scaffoldBackgroundColor: palette.background,
+      canvasColor: palette.background,
       splashFactory: InkSparkle.splashFactory,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: background,
+      extensions: <ThemeExtension<dynamic>>[palette],
+      appBarTheme: AppBarTheme(
+        backgroundColor: palette.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white),
+        titleTextStyle: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: palette.textPrimary,
+        ),
+        iconTheme: IconThemeData(color: palette.textPrimary),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: const Color(0xFF101016),
-        indicatorColor: seed.withOpacity(0.22),
+        backgroundColor: isDark ? palette.background : palette.surface,
+        indicatorColor: primary.withValues(alpha: 0.22),
         elevation: 0,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 12,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? Colors.white : Colors.white60,
+            color: selected ? palette.textPrimary : palette.textFaint,
           );
         }),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surfaceHigh,
-        hintStyle: const TextStyle(color: Colors.white38),
+        fillColor: palette.surfaceHigh,
+        hintStyle: TextStyle(color: palette.textFaint),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -52,14 +68,14 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: seed.withOpacity(0.8), width: 1.4),
+          borderSide: BorderSide(color: primary.withValues(alpha: 0.8), width: 1.4),
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaceHigh,
-        selectedColor: seed.withOpacity(0.28),
+        backgroundColor: palette.surfaceHigh,
+        selectedColor: primary.withValues(alpha: 0.28),
         side: BorderSide.none,
-        labelStyle: const TextStyle(fontSize: 13, color: Colors.white70),
+        labelStyle: TextStyle(fontSize: 13, color: palette.textSecondary),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -69,18 +85,23 @@ class AppTheme {
           textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),
-      dividerTheme: const DividerThemeData(color: Color(0xFF23232E), thickness: 1),
+      dividerTheme: DividerThemeData(color: palette.border, thickness: 1),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: surfaceHigh,
-        contentTextStyle: const TextStyle(color: Colors.white),
+        backgroundColor: palette.surfaceHigh,
+        contentTextStyle: TextStyle(color: palette.textPrimary),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: Color(0xFF15151C),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: isDark ? palette.surfaceHigh : palette.surface,
         surfaceTintColor: Colors.transparent,
       ),
-      listTileTheme: const ListTileThemeData(iconColor: Colors.white70),
+      listTileTheme: ListTileThemeData(iconColor: palette.textSecondary),
+      popupMenuTheme: PopupMenuThemeData(
+        color: isDark ? palette.surfaceHigh : palette.surface,
+        surfaceTintColor: Colors.transparent,
+        textStyle: TextStyle(color: palette.textPrimary, fontSize: 14),
+      ),
     );
   }
 }

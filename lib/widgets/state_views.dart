@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_palette.dart';
 
 class LoadingView extends StatelessWidget {
   const LoadingView({super.key, this.text = '加载中…'});
@@ -17,7 +18,7 @@ class LoadingView extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2.4),
           ),
           const SizedBox(height: 14),
-          Text(text, style: const TextStyle(color: Colors.white54, fontSize: 13)),
+          Text(text, style: TextStyle(color: context.palette.textSecondary, fontSize: 13)),
         ],
       ),
     );
@@ -52,19 +53,19 @@ class EmptyView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            badge ?? Icon(icon, size: 56, color: Colors.white24),
+            badge ?? Icon(icon, size: 56, color: context.palette.textFaint),
             const SizedBox(height: 16),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: context.palette.textPrimary),
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 8),
               Text(
                 subtitle!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, height: 1.5, color: Colors.white54),
+                style: TextStyle(fontSize: 13, height: 1.5, color: context.palette.textSecondary),
               ),
             ],
             if (actionLabel != null && onAction != null) ...[
@@ -92,12 +93,12 @@ class ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off_rounded, size: 52, color: Colors.white30),
+            Icon(Icons.cloud_off_rounded, size: 52, color: context.palette.textFaint),
             const SizedBox(height: 14),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, height: 1.5, color: Colors.white70),
+              style: TextStyle(fontSize: 14, height: 1.5, color: context.palette.textSecondary),
             ),
             if (onRetry != null) ...[
               const SizedBox(height: 18),
