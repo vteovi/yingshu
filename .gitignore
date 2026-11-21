@@ -33,3 +33,6 @@ windows/flutter/ephemeral/
 # Misc
 .DS_Store
 *.log
+
+dist/
+
