@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File .\tool\apply_branding.ps1
 flutter run -d windows
 ```
 
-要求：Flutter ≥ 3.22（Dart ≥ 3.4）。打包 APK / IPA 由你自己执行。
+要求：Flutter ≥ 3.22（Dart ≥ 3.4）。CI 使用最新 stable，本机开发建议 3.50.x 及以上。打包 APK / IPA 由你自己执行。
 
 > `tool/apply_branding.ps1` 会把 `applicationId` 改成 `com.yingshu.player`、应用名改成「影枢」、补 INTERNET 权限与明文流量开关、iOS 显示名与 ATS、macOS 网络权限与 AppIcon，并重跑图标生成。脚本可重复执行。
 
@@ -179,7 +179,7 @@ tool/patch_branding.py        # 跨平台品牌信息写入（包名、权限、
 
 仓库已内置 `.github/workflows/build-apk.yml`，推送到 `main` 或手动触发即会在 Ubuntu 上打包出通用 release APK，无需本机装 Flutter/Android SDK。
 
-流程：checkout → JDK 17 → Flutter 3.24.5 stable → `flutter create --platforms=android` 生成平台壳（只拷回 `android/`，不动 `lib/main.dart`）→ `flutter pub get` → `bash tool/apply_branding.sh` → `flutter build apk --release` → 上传 `app-release.apk`。
+流程：checkout → JDK 17 → 最新 Flutter stable → `flutter create --platforms=android,ios,windows,macos` 生成平台壳（不动 `lib/main.dart`）→ `flutter pub get` → `bash tool/apply_branding.sh` → `flutter build apk --release` → 上传 `app-release.apk`。
 
 下载方式：仓库 **Actions → 对应一次运行 → Artifacts → `yingshu-apk-<run_number>`**。产物保留 30 天。
 
