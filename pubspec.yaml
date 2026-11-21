@@ -28,6 +28,9 @@ dev_dependencies:
 # 在 Flutter 3.24 上会报 "Could not get unknown property 'flutter'"。锁在 8.x。
 dependency_overrides:
   package_info_plus: 8.3.1
+  # 2.x 的 screen_brightness_android 用了 Kotlin 2.x 的 compilerOptions DSL，
+  # Flutter 3.24 模板是 Kotlin 1.9，会报 NoSuchMethod。锁回 0.2.2。
+  screen_brightness: 0.2.2
 
 flutter:
   uses-material-design: true
