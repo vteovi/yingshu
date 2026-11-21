@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -166,40 +166,35 @@ class SourcesPage extends StatelessWidget {
 
   /// 本地 JSON / TXT 文件导入（TVBox 配置文件、影枢导出文件都可以）。
   Future<void> _importFile(BuildContext context, AppState app) async {
-    FilePickerResult? result;
+    const typeGroup = XTypeGroup(
+      label: '配置文件',
+      extensions: <String>['json', 'txt'],
+    );
+
+    XFile? picked;
     try {
-      result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        withData: true,
-      );
+      picked = await openFile(acceptedTypeGroups: const <XTypeGroup>[typeGroup]);
     } catch (error) {
       if (!context.mounted) return;
       _snack(context, '打开文件选择器失败：$error');
       return;
     }
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (bytes == null) {
-      if (!context.mounted) return;
-      _snack(context, '读取文件失败，请换一个文件试试');
-      return;
-    }
+    if (picked == null) return;
 
     String text;
     try {
-      text = utf8.decode(bytes, allowMalformed: true);
-    } catch (_) {
+      text = await picked.readAsString();
+    } catch (error) {
       if (!context.mounted) return;
-      _snack(context, '文件不是 UTF-8 文本，无法解析');
+      _snack(context, '读取文件失败：$error');
       return;
     }
 
     final bundle = parseSourceBundle(text);
+    final name = picked.name;
     if (bundle.isEmpty) {
       if (!context.mounted) return;
-      _snack(context, '「${file.name}」里没有找到可用的接口地址');
+      _snack(context, '「$name」里没有找到可用的接口地址');
       return;
     }
 
@@ -211,8 +206,8 @@ class SourcesPage extends StatelessWidget {
     }
     if (!context.mounted) return;
     _snack(context, added == 0
-        ? '「${file.name}」里的源都已存在'
-        : '从「${file.name}」导入成功，新增 $added 个源');
+        ? '「$name」里的源都已存在'
+        : '从「$name」导入成功，新增 $added 个源');
   }
 
   Future<void> _importUrl(BuildContext context, AppState app) async {
