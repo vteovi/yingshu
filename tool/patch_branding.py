@@ -119,10 +119,36 @@ def patch_macos() -> None:
         print(f"[macos] {name}: network.client 已开启")
 
 
+def patch_gradle_lint() -> None:
+    """CI 的 lintVital 会在插件模块上因 lint 引擎版本不匹配崩溃，统一关掉 lint 任务。"""
+    marker = "// 影枢：关闭 lint 任务"
+    block = f"""
+{marker}
+subprojects {{
+    tasks.configureEach {{
+        if (name.startsWith("lint")) {{
+            enabled = false
+        }}
+    }}
+}}
+"""
+    for name in ("android/build.gradle.kts", "android/build.gradle"):
+        path = ROOT / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if marker in text:
+            continue
+        text = text.rstrip() + "\n" + block
+        path.write_text(text, encoding="utf-8")
+        print(f"[android] {name}: 已关闭 lint 任务")
+
+
 def main() -> None:
     patch_android()
     patch_ios()
     patch_macos()
+    patch_gradle_lint()
 
 
 if __name__ == "__main__":
