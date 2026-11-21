@@ -68,7 +68,7 @@ SourceBundle parseSourceBundle(String text) {
 
   // 单条配置：顶层直接给了接口地址
   if (sources.isEmpty) {
-    final direct = _sourceFromMap(decoded);
+    final direct = _sourceFromMap(Map<String, dynamic>.from(decoded));
     if (direct != null) sources.add(direct);
   }
 
