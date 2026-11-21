@@ -225,6 +225,8 @@ class CmsApi {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return '连接超时，检查网络或接口地址';
+      case DioExceptionType.transformTimeout:
+        return '响应解析超时，接口返回内容可能过大';
       case DioExceptionType.badCertificate:
         return '证书校验失败';
       case DioExceptionType.connectionError:
