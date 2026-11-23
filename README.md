@@ -215,7 +215,9 @@ tool/patch_branding.py        # 跨平台品牌信息写入（包名、权限、
 
 ## 开源协议
 
-本项目以 **GNU General Public License v3.0（GPL-3.0）** 授权，完整条款见仓库根目录的 [`LICENSE`](LICENSE)。
+本项目以 **GNU General Public License v3.0（GPL-3.0）** 授权，完整条款见仓库根目录的 [`LICENSE`](LICENSE)（标准 GPL-3.0 正文，未做任何修改）。
+
+Copyright (C) 2025-2026 影枢 CineHub 项目作者。
 
 简单说：你可以自由使用、修改、分发本项目（包括商用），但只要你把改过的版本发布出去（发 APK、上架应用商店、做成在线服务），就必须同样以 GPL-3.0 开源完整源码，并保留原作者版权声明与许可声明。不允许把本项目（或其衍生版本）改成闭源后再分发。
 
