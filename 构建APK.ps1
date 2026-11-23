@@ -186,7 +186,8 @@ function Invoke-Build {
     # 这任务只是给 Google Play 记录依赖、对 APK 没影响，这里先删目录再跳过任务。
     $SdkDepDir = Join-Path $Root 'build\app\outputs\sdk-dependencies'
     if (Test-Path $SdkDepDir) { Remove-Item $SdkDepDir -Recurse -Force -ErrorAction SilentlyContinue }
-    $buildArgs += @('-x', 'sdkReleaseDependencyData')
+    # 注意：这个任务不能 -x 跳过。跳过它会让 :app:packageRelease 找不到
+    # sdkDependencyData.pb 输入文件而失败，所以只能删掉被占用的旧文件让它重新生成。
     Push-Location (Join-Path $Root 'android')
     # gradlew 会把进度/提示写到 stderr（例如 “Flutter assets will be downloaded from ...”），
     # 在 ErrorActionPreference=Stop 下会被当成终止性错误、把构建中途掐断，所以这里临时放宽。
