@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
@@ -7,7 +9,21 @@ import '../data/subscription.dart';
 import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
 import '../models/media_record.dart';
+import '../models/source_health.dart';
 import '../models/vod.dart';
+
+/// 一次订阅源检测的汇总结果。
+class SourceCheckSummary {
+  const SourceCheckSummary({
+    required this.available,
+    required this.unavailable,
+    required this.total,
+  });
+
+  final int available;
+  final int unavailable;
+  final int total;
+}
 
 /// 全局状态：订阅源、收藏、历史、设置。
 class AppState extends ChangeNotifier {
@@ -18,8 +34,13 @@ class AppState extends ChangeNotifier {
   final SubscriptionFetcher _fetcher = SubscriptionFetcher();
 
   final List<CmsSource> _sources = [];
+  final Map<String, SourceHealth> _health = {};
   final List<FavoriteItem> _favorites = [];
   final List<HistoryItem> _history = [];
+
+  bool _checking = false;
+  int _checkDone = 0;
+  int _checkTotal = 0;
 
   String? _currentSourceId;
   String _userAgent = kDefaultUserAgent;
@@ -38,6 +59,18 @@ class AppState extends ChangeNotifier {
       _sources.where((source) => source.enabled).toList(growable: false);
   List<FavoriteItem> get favorites => List.unmodifiable(_favorites);
   List<HistoryItem> get history => List.unmodifiable(_history);
+
+  // ---------------------------------------------------------------- 检测状态
+  bool get checking => _checking;
+  int get checkDone => _checkDone;
+  int get checkTotal => _checkTotal;
+  double get checkProgress => _checkTotal == 0 ? 0 : _checkDone / _checkTotal;
+
+  SourceHealth healthOf(String sourceId) =>
+      _health[sourceId] ?? const SourceHealth();
+
+  int get availableCount => _sources.where((s) => healthOf(s.id).isAvailable).length;
+  int get unavailableCount => _sources.where((s) => healthOf(s.id).isUnavailable).length;
 
   CmsSource? get currentSource {
     final byId = _sources.where((s) => s.id == _currentSourceId && s.enabled);
@@ -82,6 +115,21 @@ class AppState extends ChangeNotifier {
     _themeMode = _parseThemeMode(settings['themeMode']);
     _api.userAgent = _userAgent;
     _fetcher.userAgent = _userAgent;
+
+    final rawHealth = settings['sourceHealth'];
+    if (rawHealth is List) {
+      for (final item in rawHealth.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(item);
+        final id = (map['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+        _health[id] = SourceHealth.fromJson(map);
+      }
+    }
+    for (final map in _store.readList(LocalStore.keySourceHealth)) {
+      final id = (map['id'] ?? '').toString();
+      if (id.isEmpty) continue;
+      _health[id] = SourceHealth.fromJson(map);
+    }
 
     notifyListeners();
   }
@@ -141,10 +189,12 @@ class AppState extends ChangeNotifier {
     final historyCount = _history.where((h) => h.sourceId == id).length;
     _favorites.removeWhere((f) => f.sourceId == id);
     _history.removeWhere((h) => h.sourceId == id);
+    _health.remove(id);
     await Future.wait([
       _persistSources(),
       _persistFavorites(),
       _persistHistory(),
+      _persistHealth(),
     ]);
     _lastRemovedSourceCleanup = favoriteCount + historyCount;
     notifyListeners();
@@ -191,6 +241,103 @@ class AppState extends ChangeNotifier {
     return _store.writeList(
       LocalStore.keySources,
       _sources.map((s) => s.toJson()).toList(growable: false),
+    );
+  }
+
+  Future<void> _persistHealth() {
+    return _store.writeList(
+      LocalStore.keySourceHealth,
+      _health.entries
+          .map((entry) => <String, dynamic>{'id': entry.key, ...entry.value.toJson()})
+          .toList(growable: false),
+    );
+  }
+
+  /// 逐个探测订阅源是否可用，测完把可用的打开并排到前面、不可用的关掉排到后面。
+  Future<SourceCheckSummary> checkSources() async {
+    if (_checking || _sources.isEmpty) {
+      return SourceCheckSummary(
+        available: availableCount,
+        unavailable: unavailableCount,
+        total: _sources.length,
+      );
+    }
+
+    final targets = List<CmsSource>.from(_sources);
+    final results = <String, SourceHealth>{};
+
+    _checking = true;
+    _checkDone = 0;
+    _checkTotal = targets.length;
+    notifyListeners();
+
+    // 限制并发，避免一次打几十个站点把网络和设备都拖住
+    final queue = List<CmsSource>.from(targets);
+    Future<void> worker() async {
+      while (queue.isNotEmpty) {
+        final source = queue.removeAt(0);
+        final stopwatch = Stopwatch()..start();
+        SourceHealth health;
+        try {
+          final index = await _api.probe(source.api);
+          stopwatch.stop();
+          final usable = index.categories.isNotEmpty || index.videos.isNotEmpty;
+          health = SourceHealth(
+            status: usable ? SourceHealthStatus.available : SourceHealthStatus.unavailable,
+            message: usable
+                ? '接口正常，${index.categories.length} 个分类 / ${index.videos.length} 条数据'
+                : '接口有响应但没有返回分类或影片数据',
+            latencyMs: stopwatch.elapsedMilliseconds,
+            checkedAt: DateTime.now(),
+          );
+        } catch (error) {
+          stopwatch.stop();
+          health = SourceHealth(
+            status: SourceHealthStatus.unavailable,
+            message: error.toString().replaceFirst('CmsException: ', ''),
+            latencyMs: stopwatch.elapsedMilliseconds,
+            checkedAt: DateTime.now(),
+          );
+        }
+        results[source.id] = health;
+        _checkDone++;
+        notifyListeners();
+      }
+    }
+
+    final workerCount = targets.length < 4 ? targets.length : 4;
+    await Future.wait(List<Future<void>>.generate(workerCount, (_) => worker()));
+
+    // 可用的在前并打开，不可用的在后并关闭；同组内保持原有顺序
+    final okList = targets
+        .where((s) => results[s.id]?.isAvailable ?? false)
+        .map((s) => s.copyWith(enabled: true))
+        .toList();
+    final badList = targets
+        .where((s) => !(results[s.id]?.isAvailable ?? false))
+        .map((s) => s.copyWith(enabled: false))
+        .toList();
+    _sources
+      ..clear()
+      ..addAll([...okList, ...badList]);
+
+    _health
+      ..removeWhere((id, _) => !targets.any((s) => s.id == id))
+      ..addAll(results);
+
+    if (_currentSourceId != null && badList.any((s) => s.id == _currentSourceId)) {
+      _currentSourceId = okList.isEmpty ? null : okList.first.id;
+      await _store.writeString(LocalStore.keyCurrentSource, _currentSourceId ?? '');
+    }
+
+    _checking = false;
+    await Future.wait([_persistSources(), _persistHealth()]);
+    notifyListeners();
+
+    return SourceCheckSummary(
+      available: okList.length,
+      unavailable: badList.length,
+      total: targets.length,
     );
   }
 

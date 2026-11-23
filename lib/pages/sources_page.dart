@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
+import '../models/source_health.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_mark.dart';
@@ -27,6 +28,11 @@ class SourcesPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('订阅源管理'),
         actions: [
+          IconButton(
+            tooltip: app.checking ? '正在检测…' : '检测可用性',
+            onPressed: app.checking ? null : () => _runCheck(context, app),
+            icon: const Icon(Icons.network_check),
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
@@ -53,6 +59,15 @@ class SourcesPage extends StatelessWidget {
             ],
           ),
         ],
+        bottom: app.checking
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(3),
+                child: LinearProgressIndicator(
+                  value: app.checkProgress,
+                  minHeight: 3,
+                ),
+              )
+            : null,
       ),
       body: sources.isEmpty
           ? EmptyView(
@@ -62,26 +77,59 @@ class SourcesPage extends StatelessWidget {
               actionLabel: '添加第一个源',
               onAction: () => _openEdit(context, null),
             )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-              itemCount: sources.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final source = sources[i];
-                return _SourceCard(
-                  source: source,
-                  isCurrent: app.currentSource?.id == source.id,
-                  onTap: () => _openEdit(context, source),
-                  onToggle: (value) => app.toggleSource(source.id, value),
-                  onDelete: () => _confirmDelete(context, app, source),
-                );
-              },
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (app.checking)
+                  _CheckBanner(
+                    text: '正在检测 ${app.checkDone}/${app.checkTotal} 个源…',
+                  )
+                else if (app.availableCount + app.unavailableCount > 0)
+                  _CheckBanner(
+                    text: '可用 ${app.availableCount} 个 · 不可用 ${app.unavailableCount} 个',
+                    showDot: false,
+                  ),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                    itemCount: sources.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, i) {
+                      final source = sources[i];
+                      return _SourceCard(
+                        source: source,
+                        health: app.healthOf(source.id),
+                        isCurrent: app.currentSource?.id == source.id,
+                        onTap: () => _openEdit(context, source),
+                        onToggle: (value) => app.toggleSource(source.id, value),
+                        onDelete: () => _confirmDelete(context, app, source),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEdit(context, null),
         icon: const Icon(Icons.add),
         label: const Text('添加源'),
       ),
+    );
+  }
+
+  Future<void> _runCheck(BuildContext context, AppState app) async {
+    final summary = await app.checkSources();
+    if (!context.mounted) return;
+    if (summary.total == 0) {
+      _snack(context, '没有可检测的源');
+      return;
+    }
+    _snack(
+      context,
+      summary.unavailable == 0
+          ? '全部 ${summary.total} 个源可用，已保持在前面并启用'
+          : '${summary.available} 个可用已启用排在前，'
+              '${summary.unavailable} 个不可用已关闭排在后',
     );
   }
 
@@ -260,9 +308,77 @@ class SourcesPage extends StatelessWidget {
   }
 }
 
+class _CheckBanner extends StatelessWidget {
+  const _CheckBanner({required this.text, this.showDot = true});
+
+  final String text;
+  final bool showDot;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+      child: Row(
+        children: [
+          if (showDot) ...[
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthChip extends StatelessWidget {
+  const _HealthChip({required this.health});
+
+  final SourceHealth health;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    switch (health.status) {
+      case SourceHealthStatus.available:
+        color = const Color(0xFF3DDC97);
+        break;
+      case SourceHealthStatus.unavailable:
+        color = const Color(0xFFE86A6A);
+        break;
+      case SourceHealthStatus.unknown:
+        color = context.palette.textFaint;
+        break;
+    }
+    final latency = health.latencyLabel;
+    final label = health.isUnknown || latency.isEmpty
+        ? health.label
+        : '${health.label} · $latency';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 10, color: color)),
+    );
+  }
+}
+
 class _SourceCard extends StatelessWidget {
   const _SourceCard({
     required this.source,
+    required this.health,
     required this.isCurrent,
     required this.onTap,
     required this.onToggle,
@@ -270,6 +386,7 @@ class _SourceCard extends StatelessWidget {
   });
 
   final CmsSource source;
+  final SourceHealth health;
   final bool isCurrent;
   final VoidCallback onTap;
   final ValueChanged<bool> onToggle;
@@ -277,11 +394,14 @@ class _SourceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final unavailable = health.isUnavailable;
     return Material(
       color: context.palette.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: context.palette.border),
+        side: BorderSide(
+          color: unavailable ? const Color(0x4DE86A6A) : context.palette.border,
+        ),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -304,6 +424,8 @@ class _SourceCard extends StatelessWidget {
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        _HealthChip(health: health),
                         if (isCurrent) ...[
                           const SizedBox(width: 8),
                           Container(
@@ -327,7 +449,15 @@ class _SourceCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                     ),
-                    if (source.note.isNotEmpty) ...[
+                    if (unavailable && health.message.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        health.message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: Color(0xFFE86A6A)),
+                      ),
+                    ] else if (source.note.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
                         source.note,

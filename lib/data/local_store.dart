@@ -13,6 +13,7 @@ class LocalStore {
   static const String keyHistory = 'cms_history_v1';
   static const String keySettings = 'cms_settings_v1';
   static const String keyCurrentSource = 'cms_current_source_v1';
+  static const String keySourceHealth = 'cms_source_health_v1';
 
   List<Map<String, dynamic>> readList(String key) {
     final raw = _prefs.getString(key);
