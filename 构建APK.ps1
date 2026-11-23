@@ -181,6 +181,12 @@ function Invoke-Build {
         $buildArgs += '-Psplit-per-abi=true'
         $buildArgs += '-Ptarget-platform=android-arm,android-arm64,android-x64'
     }
+    # sdkReleaseDependencyData 会把结果写进 build\app\outputs\sdk-dependencies，
+    # 上一次构建/杀 Java 进程后常留下被占用的死文件，直接让 BUILD FAILED。
+    # 这任务只是给 Google Play 记录依赖、对 APK 没影响，这里先删目录再跳过任务。
+    $SdkDepDir = Join-Path $Root 'build\app\outputs\sdk-dependencies'
+    if (Test-Path $SdkDepDir) { Remove-Item $SdkDepDir -Recurse -Force -ErrorAction SilentlyContinue }
+    $buildArgs += @('-x', 'sdkReleaseDependencyData', '-x', 'sdkDebugDependencyData')
     Push-Location (Join-Path $Root 'android')
     # gradlew 会把进度/提示写到 stderr（例如 “Flutter assets will be downloaded from ...”），
     # 在 ErrorActionPreference=Stop 下会被当成终止性错误、把构建中途掐断，所以这里临时放宽。
@@ -276,34 +282,40 @@ if (-not $NoSign) {
     }
 }
 
-# ---------------------------------------------------------------- 7. 拷贝到项目根目录
-Write-Step '拷贝到项目根目录'
+# ---------------------------------------------------------------- 7. 拷贝到项目上层目录
+Write-Step '拷贝到 D:\DouBao\CineHub'
 
-$RootApks = Get-ChildItem $Root -Filter '影枢_*.apk' -ErrorAction SilentlyContinue
-if ($RootApks) { $RootApks | Remove-Item -Force }
+# 产物直接放到工程外层的 CineHub 目录（和 .signing / 安装包 同级），
+# 不要清理这个目录里已有的 APK：老版本要留着，新版本按「影枢_版本_架构.apk」名字并入。
+$DestDir = Split-Path -Parent $Root
+if (-not (Test-Path $DestDir)) { $DestDir = $Root }
+New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
 
 $results = @()
 if ($Signed.Count -gt 0) {
     foreach ($item in $Signed) {
         $name = "影枢_${Version}_$($item.Abi).apk"
-        Copy-Item $item.Path (Join-Path $Root $name) -Force
-        $results += Get-Item (Join-Path $Root $name)
+        $target = Join-Path $DestDir $name
+        Copy-Item $item.Path $target -Force
+        $results += Get-Item $target
     }
 } else {
     foreach ($apk in $Built) {
         $abi = 'universal'
         if ($apk.Name -match 'app-(.+)-release\.apk') { $abi = $Matches[1] }
         $name = "影枢_${Version}_$abi.apk"
-        Copy-Item $apk.FullName (Join-Path $Root $name) -Force
-        $results += Get-Item (Join-Path $Root $name)
+        $target = Join-Path $DestDir $name
+        Copy-Item $apk.FullName $target -Force
+        $results += Get-Item $target
     }
 }
 
 Write-Step '完成'
 foreach ($f in $results) {
-    Write-Host ("    {0}  {1} MB" -f $f.Name, [math]::Round($f.Length / 1MB, 2)) -ForegroundColor White
+    Write-Host ("    {0}  {1} MB" -f $f.FullName, [math]::Round($f.Length / 1MB, 2)) -ForegroundColor White
 }
 Write-Warn2 'arm64-v8a 是绝大多数手机要装的那个，armeabi-v7a 给老机型，x86_64 给模拟器。'
+Write-Warn2 "同目录下的老版本 APK 都保留着，不会被这次构建删掉。"
 
 # ---------------------------------------------------------------- 8. 收尾：清理 Java 进程
 if (-not $KeepJava) {

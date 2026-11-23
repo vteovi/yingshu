@@ -210,3 +210,13 @@ tool/patch_branding.py        # 跨平台品牌信息写入（包名、权限、
 1. 脚本会把 `applicationId` 改为 `com.yingshu.player`，并同步搬动 `MainActivity` 的包路径，否则运行时会找不到启动 Activity。
 2. 未配置签名 Secrets 时产出的是 debug key 签名的 release 包，可直接安装；配置后由 `apksigner` 重签成正式签名。
 3. 没有 Flutter SDK 时不要在本机执行 `flutter build`，交给 CI。
+
+---
+
+## 开源协议
+
+本项目以 **GNU General Public License v3.0（GPL-3.0）** 授权，完整条款见仓库根目录的 [`LICENSE`](LICENSE)。
+
+简单说：你可以自由使用、修改、分发本项目（包括商用），但只要你把改过的版本发布出去（发 APK、上架应用商店、做成在线服务），就必须同样以 GPL-3.0 开源完整源码，并保留原作者版权声明与许可声明。不允许把本项目（或其衍生版本）改成闭源后再分发。
+
+如果要引用本项目的代码，请在 README 或「关于」里注明来源：`影枢 CineHub — https://github.com/vteovi/yingshu`。
