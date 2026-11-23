@@ -68,9 +68,11 @@ class MainActivity : FlutterActivity() {
                     .setAspectRatio(Rational((clamped * 1000).toInt(), 1000))
                     .build()
                 enterPictureInPictureMode(params)
+                true
             } else {
                 @Suppress("DEPRECATION")
                 enterPictureInPictureMode()
+                true
             }
         } catch (e: Exception) {
             false
