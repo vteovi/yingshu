@@ -4,7 +4,7 @@
 
 - 应用名：**影枢**（CineHub）
 - 包名：`com.yingshu.player`
-- 版本：`0.15.0+1500`
+- 版本：`0.15.1+1501`
 - 目标平台：Android / iOS / Windows / macOS（同一套代码）
 - 播放内核：`media_kit`（libmpv），支持 HLS(m3u8)、mp4 等直链
 - 订阅格式：`https://域名/api.php/provide/vod/`

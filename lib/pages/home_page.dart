@@ -100,6 +100,8 @@ class _HomePageState extends State<HomePage> {
           _PosterModeButton(
             mode: app.posterMode,
             onChanged: app.setPosterMode,
+            size: app.posterSize,
+            onSizeChanged: app.setPosterSize,
           ),
           IconButton(
             tooltip: '订阅源管理',
@@ -393,12 +395,19 @@ class _SourceSelector extends StatelessWidget {
 }
 
 /// 首页 AppBar 上的「海报样式」按钮：
-/// 单击在 竖向 → 横向 → 原始比例 之间循环，长按弹出菜单直接选。
+/// 单击在 竖向 → 横向 → 原始比例 之间循环；长按弹出菜单，样式与海报大小都能直接选。
 class _PosterModeButton extends StatefulWidget {
-  const _PosterModeButton({required this.mode, required this.onChanged});
+  const _PosterModeButton({
+    required this.mode,
+    required this.onChanged,
+    required this.size,
+    required this.onSizeChanged,
+  });
 
   final PosterMode mode;
   final ValueChanged<PosterMode> onChanged;
+  final PosterSize size;
+  final ValueChanged<PosterSize> onSizeChanged;
 
   @override
   State<_PosterModeButton> createState() => _PosterModeButtonState();
@@ -417,6 +426,12 @@ class _PosterModeButtonState extends State<_PosterModeButton> {
     PosterMode.portrait: Icons.crop_portrait,
     PosterMode.landscape: Icons.crop_landscape,
     PosterMode.actual: Icons.view_quilt_outlined,
+  };
+
+  static const Map<PosterSize, String> _sizeLabels = {
+    PosterSize.small: '海报小',
+    PosterSize.medium: '海报中',
+    PosterSize.large: '海报大',
   };
 
   PosterMode get _next {

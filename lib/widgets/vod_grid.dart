@@ -68,7 +68,12 @@ VodGridSpec vodGridSpec({
   const double caption = 46;
   final available = maxWidth - _horizontalPadding * 2;
 
-  final portraitColumns = (available / _targetTileWidth(size, maxWidth)).floor().clamp(1, 10);
+  var portraitColumns = (available / _targetTileWidth(size, maxWidth)).floor().clamp(1, 10);
+  // 窄屏上「大」档只剩 1 列，卡片被限宽居中后两边各挂一条大黑边；
+  // 直接补到 2 列，宁可小一点也不要黑边。
+  if (size == PosterSize.large && portraitColumns < 2 && available < 600) {
+    portraitColumns = 2;
+  }
   final portraitWidth = (available - _spacing * (portraitColumns - 1)) / portraitColumns;
 
   if (!landscape) {
