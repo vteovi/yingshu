@@ -97,6 +97,10 @@ class _HomePageState extends State<HomePage> {
             },
             icon: const Icon(Icons.search),
           ),
+          _PosterModeButton(
+            mode: app.posterMode,
+            onChanged: app.setPosterMode,
+          ),
           IconButton(
             tooltip: '订阅源管理',
             onPressed: () => _openSources(context),
@@ -383,6 +387,113 @@ class _SourceSelector extends StatelessWidget {
           ),
           Icon(Icons.expand_more, size: 20, color: context.palette.textSecondary),
         ],
+      ),
+    );
+  }
+}
+
+/// 首页 AppBar 上的「海报样式」按钮：
+/// 单击在 竖向 → 横向 → 原始比例 之间循环，长按弹出菜单直接选。
+class _PosterModeButton extends StatefulWidget {
+  const _PosterModeButton({required this.mode, required this.onChanged});
+
+  final PosterMode mode;
+  final ValueChanged<PosterMode> onChanged;
+
+  @override
+  State<_PosterModeButton> createState() => _PosterModeButtonState();
+}
+
+class _PosterModeButtonState extends State<_PosterModeButton> {
+  final GlobalKey _key = GlobalKey();
+
+  static const Map<PosterMode, String> _labels = {
+    PosterMode.portrait: '竖向',
+    PosterMode.landscape: '横向',
+    PosterMode.actual: '原始比例',
+  };
+
+  static const Map<PosterMode, IconData> _icons = {
+    PosterMode.portrait: Icons.crop_portrait,
+    PosterMode.landscape: Icons.crop_landscape,
+    PosterMode.actual: Icons.view_quilt_outlined,
+  };
+
+  PosterMode get _next {
+    switch (widget.mode) {
+      case PosterMode.portrait:
+        return PosterMode.landscape;
+      case PosterMode.landscape:
+        return PosterMode.actual;
+      case PosterMode.actual:
+        return PosterMode.portrait;
+    }
+  }
+
+  Future<void> _showMenu() async {
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay);
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(topLeft, bottomRight),
+      Offset.zero & overlay.size,
+    );
+    final picked = await showMenu<PosterMode>(
+      context: context,
+      position: position,
+      items: [
+        for (final mode in PosterMode.values)
+          PopupMenuItem<PosterMode>(
+            value: mode,
+            child: Row(
+              children: [
+                Icon(
+                  _icons[mode],
+                  size: 18,
+                  color: mode == widget.mode
+                      ? Theme.of(context).colorScheme.primary
+                      : context.palette.textSecondary,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  _labels[mode] ?? '',
+                  style: TextStyle(
+                    fontWeight: mode == widget.mode ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+                if (mode == widget.mode) ...[
+                  const Spacer(),
+                  Icon(Icons.check, size: 17, color: Theme.of(context).colorScheme.primary),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+    if (picked != null && picked != widget.mode) widget.onChanged(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _labels[widget.mode] ?? '';
+    return Tooltip(
+      message: '海报样式：$label（长按选择）',
+      child: InkResponse(
+        key: _key,
+        onTap: () => widget.onChanged(_next),
+        onLongPress: _showMenu,
+        radius: 24,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(
+            _icons[widget.mode],
+            size: 23,
+            color: context.palette.textPrimary,
+          ),
+        ),
       ),
     );
   }
