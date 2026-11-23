@@ -46,12 +46,14 @@ class AppState extends ChangeNotifier {
   String _userAgent = kDefaultUserAgent;
   bool _autoPlayNext = true;
   bool _rememberProgress = true;
+  bool _skipIntroAd = true;
   ThemeMode _themeMode = ThemeMode.system;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
   bool get autoPlayNext => _autoPlayNext;
   bool get rememberProgress => _rememberProgress;
+  bool get skipIntroAd => _skipIntroAd;
   ThemeMode get themeMode => _themeMode;
 
   List<CmsSource> get sources => List.unmodifiable(_sources);
@@ -112,6 +114,7 @@ class AppState extends ChangeNotifier {
     _autoPlayNext = settings['autoPlayNext'] is bool ? settings['autoPlayNext'] as bool : true;
     _rememberProgress =
         settings['rememberProgress'] is bool ? settings['rememberProgress'] as bool : true;
+    _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : true;
     _themeMode = _parseThemeMode(settings['themeMode']);
     _api.userAgent = _userAgent;
     _fetcher.userAgent = _userAgent;
@@ -482,6 +485,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setSkipIntroAd(bool value) async {
+    _skipIntroAd = value;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> setThemeMode(ThemeMode mode) async {
     if (_themeMode == mode) return;
     _themeMode = mode;
@@ -494,6 +503,7 @@ class AppState extends ChangeNotifier {
       'userAgent': _userAgent,
       'autoPlayNext': _autoPlayNext,
       'rememberProgress': _rememberProgress,
+      'skipIntroAd': _skipIntroAd,
       'themeMode': _themeMode.name,
     });
   }

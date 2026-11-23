@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:provider/provider.dart';
 
+import '../core/hls_probe.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
 import '../theme/app_palette.dart';
@@ -61,6 +62,12 @@ class _PlayerPageState extends State<PlayerPage> {
   double _dragValue = 0;
   String? _error;
 
+  /// 中途被误判为播完（片头广告播完就停）时的自动续播次数。
+  int _resumeAttempts = 0;
+  int _resumeEpisodeIndex = -1;
+  bool _introChecked = false;
+  bool _seekingIntro = false;
+
   @override
   void initState() {
     super.initState();
@@ -99,16 +106,63 @@ class _PlayerPageState extends State<PlayerPage> {
     if (_error != null && mounted) setState(() => _error = null);
     _position.value = Duration.zero;
     _duration.value = Duration.zero;
+    _introChecked = false;
+    _resumeAttempts = 0;
+    _resumeEpisodeIndex = _index;
     try {
       await _player.open(Media(episode.url), play: true);
       await _player.setRate(_rate);
       if (seekTo != null && seekTo > const Duration(seconds: 3)) {
         await _player.seek(seekTo);
+      } else {
+        // 有些源的 m3u8 把广告拼在正片前面，直接跳过这一段
+        unawaited(_skipIntroAd(episode.url));
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
     }
+  }
+
+  /// 探测并跳过片头广告（只处理 `#EXT-X-DISCONTINUITY` 拼接的广告段）。
+  Future<void> _skipIntroAd(String url) async {
+    final state = _state;
+    if (state == null || !state.skipIntroAd || _introChecked) return;
+    _introChecked = true;
+    HlsIntro? intro;
+    try {
+      intro = await probeHlsIntro(url, userAgent: state.userAgent);
+    } catch (_) {
+      return;
+    }
+    if (intro == null || !intro.worthSkipping) return;
+    if (!mounted || _resumeEpisodeIndex != _index) return;
+
+    // 用户已经自己拖过进度，就别再插手了
+    final current = _player.state.position;
+    if (current > intro.adDuration + const Duration(seconds: 15)) return;
+
+    _seekingIntro = true;
+    try {
+      await _player.seek(intro.adDuration + const Duration(milliseconds: 800));
+    } catch (_) {
+      // 跳不过去就让广告播完，后面还有中途续播兜底
+    } finally {
+      _seekingIntro = false;
+    }
+    if (mounted) {
+      _toast('已跳过片头广告 ${intro.adDuration.inSeconds} 秒');
+    }
+  }
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 
   Future<void> _switchEpisode(int index) async {
@@ -121,12 +175,35 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _onCompleted() {
-    if (!mounted) return;
+    if (!mounted || _seekingIntro) return;
+    final position = _player.state.position;
+    final duration = _player.state.duration;
+    // 广告段拼接、切片断流时会「提前播完」：位置离总时长还很远就补一次续播，
+    // 而不是直接当成一集结束跳到下一集。
+    final midStream = _resumeEpisodeIndex == _index &&
+        position > const Duration(seconds: 5) &&
+        (duration <= Duration.zero || position < duration - const Duration(minutes: 1));
+    if (midStream && _resumeAttempts < 2) {
+      _resumeAttempts++;
+      unawaited(_resumeAt(position + const Duration(seconds: 2)));
+      return;
+    }
+
     final autoNext = _state?.autoPlayNext ?? true;
     if (autoNext && _index < widget.episodes.length - 1) {
       _switchEpisode(_index + 1);
     } else {
       _showControls();
+    }
+  }
+
+  Future<void> _resumeAt(Duration target) async {
+    try {
+      await _player.seek(target);
+      await _player.play();
+      if (mounted) _toast('播放中断，已自动从 ${_formatDuration(target)} 继续');
+    } catch (_) {
+      if (mounted) _toast('播放中断，续播失败');
     }
   }
 

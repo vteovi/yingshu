@@ -182,23 +182,48 @@ class _HomeTabs extends StatefulWidget {
 
 class _HomeTabsState extends State<_HomeTabs> {
   late final List<CmsCategory?> _tabs = [null, ...widget.index.categories];
+  late final List<GlobalKey> _tabKeys = List<GlobalKey>.generate(
+    _tabs.length,
+    (_) => GlobalKey(),
+  );
   final PageController _pageController = PageController();
+  final ScrollController _tabScroll = ScrollController();
   int _current = 0;
 
   @override
   void dispose() {
     _pageController.dispose();
+    _tabScroll.dispose();
     super.dispose();
   }
 
   void _select(int target) {
-    if (target == _current) return;
+    if (target == _current) {
+      _ensureTabVisible(target);
+      return;
+    }
     setState(() => _current = target);
+    _ensureTabVisible(target);
     _pageController.animateToPage(
       target,
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  /// 让选中的标签始终停在可视区域内（否则滑到后面几页时标签会跑到屏幕外）。
+  void _ensureTabVisible(int index) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || index < 0 || index >= _tabKeys.length) return;
+      final ctx = _tabKeys[index].currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   @override
@@ -210,49 +235,28 @@ class _HomeTabsState extends State<_HomeTabs> {
       children: [
         SizedBox(
           height: 48,
-          child: ListView.separated(
+          child: SingleChildScrollView(
+            controller: _tabScroll,
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-            itemCount: _tabs.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final selected = i == _current;
-              final title = _tabs[i]?.typeName ?? '推荐';
-              return Center(
-                child: GestureDetector(
-                  onTap: () => _select(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? primary.withValues(alpha: 0.22)
-                          : palette.surfaceHigh,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: selected ? primary.withValues(alpha: 0.55) : palette.border,
-                      ),
-                    ),
-                    child: Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.1,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                        color: selected ? palette.textPrimary : palette.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
+            child: Row(
+              children: [
+                for (var i = 0; i < _tabs.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  _buildChip(i, palette, primary),
+                ],
+              ],
+            ),
           ),
         ),
         Expanded(
           child: PageView.builder(
             controller: _pageController,
             itemCount: _tabs.length,
-            onPageChanged: (i) => setState(() => _current = i),
+            onPageChanged: (i) {
+              setState(() => _current = i);
+              _ensureTabVisible(i);
+            },
             itemBuilder: (context, i) {
               final category = _tabs[i];
               if (category == null) {
@@ -271,6 +275,35 @@ class _HomeTabsState extends State<_HomeTabs> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildChip(int i, AppPalette palette, Color primary) {
+    final selected = i == _current;
+    final title = _tabs[i]?.typeName ?? '推荐';
+    return GestureDetector(
+      key: _tabKeys[i],
+      onTap: () => _select(i),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? primary.withValues(alpha: 0.22) : palette.surfaceHigh,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? primary.withValues(alpha: 0.55) : palette.border,
+          ),
+        ),
+        child: Text(
+          title,
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.1,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? palette.textPrimary : palette.textSecondary,
+          ),
+        ),
+      ),
     );
   }
 }

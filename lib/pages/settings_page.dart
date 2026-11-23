@@ -97,6 +97,18 @@ class SettingsPage extends StatelessWidget {
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
               SwitchListTile(
+                secondary: const Icon(Icons.content_cut_rounded),
+                title: const Text('自动跳过片头广告'),
+                subtitle: Text(
+                  '识别 m3u8 里拼在正片前面的广告段并直接跳过；'
+                  '中途断流也会自动续播',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                value: app.skipIntroAd,
+                onChanged: (value) => app.setSkipIntroAd(value),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
                 secondary: const Icon(Icons.restore_rounded),
                 title: const Text('记忆播放进度'),
                 subtitle: Text(
