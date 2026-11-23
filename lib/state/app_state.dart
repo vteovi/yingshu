@@ -109,6 +109,10 @@ class AppState extends ChangeNotifier {
   bool get landscapeCard => _landscapeCard;
   PosterLayout get posterLayout => _posterLayout;
 
+  /// 真正生效的横版卡片开关：原始比例（瀑布流）本身按图片自身比例排，
+  /// 再叠横版卡片会打架，所以那种模式下横版卡片自动不生效。
+  bool get useLandscapeCard => _landscapeCard && _posterLayout == PosterLayout.grid;
+
   List<CmsSource> get sources => List.unmodifiable(_sources);
   List<CmsSource> get enabledSources =>
       _sources.where((source) => source.enabled).toList(growable: false);

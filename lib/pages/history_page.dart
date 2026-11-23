@@ -43,7 +43,7 @@ class HistoryPage extends StatelessWidget {
           : Builder(
               builder: (context) {
                 final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
-                final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+                final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
                 final thumbSize = switch (posterSize) {
                   PosterSize.small => const Size(52, 74),
                   PosterSize.medium => const Size(62, 88),
@@ -279,3 +279,4 @@ String _relativeTime(int millis) {
   final date = DateTime.fromMillisecondsSinceEpoch(millis);
   return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }
+

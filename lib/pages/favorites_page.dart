@@ -39,7 +39,7 @@ class FavoritesPage extends StatelessWidget {
           : Builder(
               builder: (context) {
                 final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
-                final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+                final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
 
                 return LayoutBuilder(
                   builder: (context, constraints) {
@@ -126,3 +126,4 @@ class FavoritesPage extends StatelessWidget {
     if (ok == true) await app.clearFavorites();
   }
 }
+

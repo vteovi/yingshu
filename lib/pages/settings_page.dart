@@ -149,11 +149,15 @@ class SettingsPage extends StatelessWidget {
                 secondary: const Icon(Icons.view_agenda_outlined),
                 title: const Text('横向卡片模式'),
                 subtitle: Text(
-                  '海报改横版（图上文下）：手机竖屏一行一张，平板自适应多列',
+                  app.posterLayout == PosterLayout.actual
+                      ? '「原始比例」模式下不生效：瀑布流本身按图片自身比例排，叠横版卡片会互相冲突'
+                      : '海报改横版（图上文下），列数与竖向海报一致，切过来时一屏内容量不变',
                   style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
                 ),
-                value: app.landscapeCard,
-                onChanged: (value) => app.setLandscapeCard(value),
+                value: app.landscapeCard && app.posterLayout == PosterLayout.grid,
+                onChanged: app.posterLayout == PosterLayout.actual
+                    ? null
+                    : (value) => app.setLandscapeCard(value),
               ),
             ],
           ),
