@@ -69,6 +69,29 @@ enum PosterLayout {
   }
 }
 
+/// 海报样式：竖向 / 横向 / 原始比例（设置页里是三选一的分段按钮）。
+///
+/// 此前是「海报排布（规整/原始比例）」+「横向卡片开关」两个独立设置，
+/// 组合起来有互相冲突的情况（原始比例 + 横向卡片），所以合成一个三档选项。
+enum PosterMode {
+  portrait('portrait', '竖向'),
+  landscape('landscape', '横向'),
+  actual('actual', '原始比例');
+
+  const PosterMode(this.key, this.label);
+
+  final String key;
+  final String label;
+
+  static PosterMode parse(Object? raw) {
+    final value = raw?.toString();
+    for (final item in values) {
+      if (item.key == value) return item;
+    }
+    return PosterMode.portrait;
+  }
+}
+
 /// 全局状态：订阅源、收藏、历史、设置。
 class AppState extends ChangeNotifier {
   AppState(this._store);
@@ -96,8 +119,7 @@ class AppState extends ChangeNotifier {
   bool _skipIntroAd = true;
   ThemeMode _themeMode = ThemeMode.system;
   PosterSize _posterSize = PosterSize.medium;
-  bool _landscapeCard = false;
-  PosterLayout _posterLayout = PosterLayout.grid;
+  PosterMode _posterMode = PosterMode.portrait;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
@@ -106,12 +128,17 @@ class AppState extends ChangeNotifier {
   bool get skipIntroAd => _skipIntroAd;
   ThemeMode get themeMode => _themeMode;
   PosterSize get posterSize => _posterSize;
-  bool get landscapeCard => _landscapeCard;
-  PosterLayout get posterLayout => _posterLayout;
+  PosterMode get posterMode => _posterMode;
 
-  /// 真正生效的横版卡片开关：原始比例（瀑布流）本身按图片自身比例排，
-  /// 再叠横版卡片会打架，所以那种模式下横版卡片自动不生效。
-  bool get useLandscapeCard => _landscapeCard && _posterLayout == PosterLayout.grid;
+  /// 兼容旧调用：横向卡片 = 海报样式选了「横向」
+  bool get landscapeCard => _posterMode == PosterMode.landscape;
+
+  /// 兼容旧调用：排布方式由海报样式推导，「原始比例」才走瀑布流
+  PosterLayout get posterLayout =>
+      _posterMode == PosterMode.actual ? PosterLayout.actual : PosterLayout.grid;
+
+  /// 真正生效的横版卡片：只有竖向/横向两档是网格，原始比例走瀑布流
+  bool get useLandscapeCard => _posterMode == PosterMode.landscape;
 
   List<CmsSource> get sources => List.unmodifiable(_sources);
   List<CmsSource> get enabledSources =>
@@ -177,8 +204,17 @@ class AppState extends ChangeNotifier {
     _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : true;
     _themeMode = _parseThemeMode(settings['themeMode']);
     _posterSize = PosterSize.parse(settings['posterSize']);
-    _landscapeCard = settings['landscapeCard'] is bool ? settings['landscapeCard'] as bool : false;
-    _posterLayout = PosterLayout.parse(settings['posterLayout']);
+    // 新设置只有 posterMode 一个键；老版本存档里是
+    // posterLayout(规整/原始比例) + landscapeCard(开关)，这里做一次迁移
+    if (settings.containsKey('posterMode')) {
+      _posterMode = PosterMode.parse(settings['posterMode']);
+    } else if (PosterLayout.parse(settings['posterLayout']) == PosterLayout.actual) {
+      _posterMode = PosterMode.actual;
+    } else if (settings['landscapeCard'] is bool && settings['landscapeCard'] as bool) {
+      _posterMode = PosterMode.landscape;
+    } else {
+      _posterMode = PosterMode.portrait;
+    }
     _api.userAgent = _userAgent;
     _fetcher.userAgent = _userAgent;
 
@@ -575,16 +611,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setLandscapeCard(bool value) async {
-    if (_landscapeCard == value) return;
-    _landscapeCard = value;
-    await _persistSettings();
-    notifyListeners();
-  }
-
-  Future<void> setPosterLayout(PosterLayout layout) async {
-    if (_posterLayout == layout) return;
-    _posterLayout = layout;
+  Future<void> setPosterMode(PosterMode mode) async {
+    if (_posterMode == mode) return;
+    _posterMode = mode;
     await _persistSettings();
     notifyListeners();
   }
@@ -597,8 +626,7 @@ class AppState extends ChangeNotifier {
       'skipIntroAd': _skipIntroAd,
       'themeMode': _themeMode.name,
       'posterSize': _posterSize.key,
-      'landscapeCard': _landscapeCard,
-      'posterLayout': _posterLayout.key,
+      'posterMode': _posterMode.key,
     });
   }
 }

@@ -113,51 +113,45 @@ class SettingsPage extends StatelessWidget {
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.view_quilt_outlined, size: 24),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('海报排布', style: TextStyle(fontSize: 15)),
-                          const SizedBox(height: 2),
-                          Text(
-                            '规整＝统一裁成 2:3 对齐；原始比例＝按每张图自身宽高比排成瀑布流',
-                            style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                    Row(
+                      children: [
+                        const Icon(Icons.view_quilt_outlined, size: 24),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('海报样式', style: TextStyle(fontSize: 15)),
+                              const SizedBox(height: 2),
+                              Text(
+                                '竖向＝2:3 竖版网格；横向＝16:10 横版卡片；原始比例＝按每张图自身比例排瀑布流',
+                                style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    SegmentedButton<PosterLayout>(
-                      showSelectedIcon: false,
-                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
-                      segments: [
-                        for (final layout in PosterLayout.values)
-                          ButtonSegment<PosterLayout>(value: layout, label: Text(layout.label)),
+                        ),
                       ],
-                      selected: {app.posterLayout},
-                      onSelectionChanged: (value) => app.setPosterLayout(value.first),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<PosterMode>(
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                        segments: [
+                          for (final mode in PosterMode.values)
+                            ButtonSegment<PosterMode>(value: mode, label: Text(mode.label)),
+                        ],
+                        selected: {app.posterMode},
+                        onSelectionChanged: (value) => app.setPosterMode(value.first),
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const Divider(height: 1, indent: 16, endIndent: 16),
-              SwitchListTile(
-                secondary: const Icon(Icons.view_agenda_outlined),
-                title: const Text('横向卡片模式'),
-                subtitle: Text(
-                  app.posterLayout == PosterLayout.actual
-                      ? '「原始比例」模式下不生效：瀑布流本身按图片自身比例排，叠横版卡片会互相冲突'
-                      : '海报改横版（图上文下）：列数按一屏条目数量和竖向海报对齐，不用再单独调海报大小',
-                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
-                ),
-                value: app.landscapeCard && app.posterLayout == PosterLayout.grid,
-                onChanged: app.posterLayout == PosterLayout.actual
-                    ? null
-                    : (value) => app.setLandscapeCard(value),
               ),
             ],
           ),
