@@ -1,12 +1,12 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../data/cms_api.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
+import '../widgets/vod_card.dart';
+import '../widgets/vod_grid.dart';
 import 'detail_page.dart';
 import '../theme/app_palette.dart';
 
@@ -191,14 +191,26 @@ class _SearchPageState extends State<SearchPage> {
         ? _hits
         : _hits.where((hit) => hit.source.id == _filterSourceId).toList(growable: false);
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      itemCount: visible.length + (_loading ? 1 : 0),
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, i) {
-        if (i >= visible.length) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
+    final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
+    final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
+    final layout = context.select<AppState, PosterLayout>((s) => s.posterLayout);
+
+    Widget cardFor(BuildContext ctx, int i) {
+      final hit = visible[i];
+      return VodCard(
+        vod: hit.vod,
+        apiBase: hit.source.api,
+        landscape: landscape,
+        footer: hit.source.name,
+        onTap: () => _openDetail(hit),
+      );
+    }
+
+    String picUrl(int i) => normalizeImageUrl(visible[i].vod.pic, api: visible[i].source.api);
+
+    final Widget status = _loading
+        ? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -214,10 +226,62 @@ class _SearchPageState extends State<SearchPage> {
                 ),
               ],
             ),
+          )
+        : const SizedBox(height: 28);
+
+    final endPadding = SliverToBoxAdapter(child: status);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 原始比例：和首页、收藏、历史同一套瀑布流
+        if (layout == PosterLayout.actual) {
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: VodMasonryGrid(
+                  itemCount: visible.length,
+                  size: posterSize,
+                  maxWidth: constraints.maxWidth,
+                  landscape: landscape,
+                  ratioOf: (i) =>
+                      PosterRatioStore.instance.ratioOf(picUrl(i)) ?? (landscape ? 16 / 10 : 2 / 3),
+                  onLayoutDone: (ctx) {
+                    for (var i = 0; i < visible.length; i++) {
+                      probePosterRatio(ctx, picUrl(i), visible[i].source.api);
+                    }
+                  },
+                  itemBuilder: cardFor,
+                ),
+              ),
+              endPadding,
+            ],
           );
         }
-        final hit = visible[i];
-        return _SearchResultTile(hit: hit, onTap: () => _openDetail(hit));
+
+        final spec = vodGridSpec(
+          maxWidth: constraints.maxWidth,
+          size: posterSize,
+          landscape: landscape,
+        );
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              sliver: SliverGrid(
+                gridDelegate: vodGridDelegate(
+                  maxWidth: constraints.maxWidth,
+                  size: posterSize,
+                  landscape: landscape,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) => VodCell(width: spec.width, child: cardFor(context, i)),
+                  childCount: visible.length,
+                ),
+              ),
+            ),
+            endPadding,
+          ],
+        );
       },
     );
   }
@@ -236,92 +300,3 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
-class _SearchResultTile extends StatelessWidget {
-  const _SearchResultTile({required this.hit, required this.onTap});
-
-  final SearchHit hit;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final vod = hit.vod;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 76,
-              height: 106,
-              child: vod.pic.isEmpty
-                  ? ColoredBox(
-                      color: context.palette.surfaceHigh,
-                      child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
-                    )
-                  : CachedNetworkImage(
-                      imageUrl: normalizeImageUrl(vod.pic),
-                      cacheManager: PosterCacheManager.instance,
-                        httpHeaders: imageHeadersFor(null),
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
-                      errorWidget: (_, __, ___) => ColoredBox(
-                        color: context.palette.surfaceHigh,
-                        child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  vod.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  vod.metaLine.isEmpty ? '暂无信息' : vod.metaLine,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary, height: 1.4),
-                ),
-                if (vod.actor.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '主演：${vod.actor}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1A2436),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '来源 · ${hit.source.name}',
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF8FD6C8)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.only(left: 8, top: 34),
-            child: Icon(Icons.chevron_right, color: context.palette.textFaint, size: 20),
-          ),
-        ],
-      ),
-    );
-  }
-}
