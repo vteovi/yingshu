@@ -13,6 +13,7 @@ import '../core/hls_probe.dart';
 import '../core/play_resolver.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
+import '../theme/app_palette.dart';
 
 /// 播放页配色：视频页恒为深色底，所以这里的文字/图标不跟随应用主题，
 /// 统一用白系颜色，保证在暗画面上也看得清。
@@ -499,30 +500,40 @@ class _PlayerPageState extends State<PlayerPage> {
           minChildSize: 0.3,
           maxChildSize: 0.9,
           builder: (context, controller) {
+            // 选集弹窗跟随应用主题：深色模式用深底浅字，浅色模式用白底深字。
+            final palette = context.palette;
+            final scheme = Theme.of(context).colorScheme;
             return Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
                   child: Row(
                     children: [
-                      const Text('选集', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      Text(
+                        '选集',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: palette.textPrimary,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           '${widget.groupName} · 共 ${widget.episodes.length} 集',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: Colors.black45),
+                          style: TextStyle(fontSize: 12, color: palette.textSecondary),
                         ),
                       ),
                       IconButton(
                         onPressed: () => Navigator.of(sheetContext).pop(),
-                        icon: const Icon(Icons.close, size: 20),
+                        icon: Icon(Icons.close, size: 20, color: palette.textSecondary),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                Divider(height: 1, color: palette.border),
                 Expanded(
                   child: ListView.builder(
                     controller: controller,
@@ -532,15 +543,15 @@ class _PlayerPageState extends State<PlayerPage> {
                       final selected = i == _index;
                       return ListTile(
                         selected: selected,
-                        selectedTileColor: const Color(0x227FA6FF),
+                        selectedTileColor: scheme.primary.withValues(alpha: 0.14),
                         leading: selected
-                            ? const Icon(Icons.play_arrow_rounded, size: 20)
+                            ? Icon(Icons.play_arrow_rounded, size: 20, color: scheme.primary)
                             : SizedBox(
                                 width: 20,
                                 child: Center(
                                   child: Text(
                                     '${i + 1}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                                    style: TextStyle(fontSize: 12, color: palette.textFaint),
                                   ),
                                 ),
                               ),
@@ -550,7 +561,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,
-                            color: selected ? Colors.black : Colors.black87,
+                            color: selected ? scheme.primary : palette.textPrimary,
                             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                           ),
                         ),
@@ -597,6 +608,52 @@ class _PlayerPageState extends State<PlayerPage> {
     _applyOrientation(effective);
   }
 
+  /// 弹窗里的胶囊按钮：底色/文字全部跟随主题，浅色模式白底深字、深色模式深底浅字，
+  /// 选中态用主题主色的低透明度填充，避免像之前那样白字压在浅灰底上。
+  Widget _aspectChip(
+    BuildContext context,
+    String label,
+    bool selected,
+    VoidCallback onTap, {
+    IconData? icon,
+  }) {
+    final palette = context.palette;
+    final primary = Theme.of(context).colorScheme.primary;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(icon == null ? 14 : 10, 9, 14, 9),
+        decoration: BoxDecoration(
+          color: selected ? primary.withValues(alpha: 0.20) : palette.surfaceHigh,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? primary : palette.border,
+            width: selected ? 1.2 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14, color: selected ? primary : palette.textSecondary),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.1,
+                color: selected ? primary : palette.textPrimary,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showAspectSheet() {
     _hideTimer?.cancel();
     setState(() => _controlsVisible = true);
@@ -604,68 +661,77 @@ class _PlayerPageState extends State<PlayerPage> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF12161E),
       builder: (sheetContext) {
-        final textStyle = const TextStyle(fontSize: 14, color: _kText);
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.aspect_ratio_rounded, size: 18, color: _kText),
-                      const SizedBox(width: 8),
-                      const Text(
-                        '画面比例',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _kText,
+        final palette = sheetContext.palette;
+        return Container(
+          color: palette.surface,
+          child: SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.aspect_ratio_rounded,
+                          size: 18,
+                          color: palette.textSecondary,
                         ),
-                      ),
-                      const Spacer(),
-                      Text(_aspectLabel, style: const TextStyle(fontSize: 12, color: _kTextDim)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final option in _aspectOptions)
-                        ChoiceChip(
-                          label: Text(option.$1),
-                          labelStyle: textStyle.copyWith(
-                            fontWeight: _aspectOverride == option.$2 &&
-                                    _aspectLabel == option.$1
-                                ? FontWeight.w700
-                                : FontWeight.w400,
+                        const SizedBox(width: 8),
+                        Text(
+                          '画面比例',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: palette.textPrimary,
                           ),
-                          selected: _aspectLabel == option.$1,
-                          onSelected: (_) {
-                            Navigator.of(sheetContext).pop();
-                            _applyAspect(option.$1, option.$2);
-                          },
                         ),
-                      ActionChip(
-                        avatar: const Icon(Icons.edit_rounded, size: 16, color: _kText),
-                        label: const Text('自定义比例…'),
-                        labelStyle: textStyle,
-                        onPressed: () {
-                          Navigator.of(sheetContext).pop();
-                          _showCustomAspectDialog();
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                        const Spacer(),
+                        Flexible(
+                          child: Text(
+                            _aspectLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: palette.textFaint),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final option in _aspectOptions)
+                          _aspectChip(
+                            sheetContext,
+                            option.$1,
+                            _aspectLabel == option.$1,
+                            () {
+                              Navigator.of(sheetContext).pop();
+                              _applyAspect(option.$1, option.$2);
+                            },
+                          ),
+                        _aspectChip(
+                          sheetContext,
+                          '自定义比例…',
+                          _aspectLabel.startsWith('自定义'),
+                          () {
+                            Navigator.of(sheetContext).pop();
+                            _showCustomAspectDialog();
+                          },
+                          icon: Icons.edit_rounded,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

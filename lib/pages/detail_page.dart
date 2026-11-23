@@ -71,9 +71,9 @@ class _DetailPageState extends State<DetailPage> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           setState(() => _groupIndex = groupIndex);
-          final history = app.historyFor(widget.source.id, vod!.vodId);
+          final history = app.historyFor(widget.source.id, vod.vodId);
           _openPlayer(
-            vod!,
+            vod,
             groups[groupIndex],
             episodeIndex,
             startPosition: history?.position,
