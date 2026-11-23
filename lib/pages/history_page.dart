@@ -2,10 +2,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../models/media_record.dart';
+import '../models/vod.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
+import '../widgets/vod_card.dart';
+import '../widgets/vod_grid.dart';
 import 'detail_page.dart';
 import '../theme/app_palette.dart';
 
@@ -36,16 +40,57 @@ class HistoryPage extends StatelessWidget {
               title: '还没有观看记录',
               subtitle: '播放过的影片会自动出现在这里，下次可一键续播。',
             )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              itemCount: history.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, i) {
-                final item = history[i];
-                return _HistoryTile(
-                  item: item,
-                  onTap: () => _resume(context, app, item),
-                  onDelete: () => app.removeHistory(item.sourceId, item.vodId),
+          : Builder(
+              builder: (context) {
+                final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
+                final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+                final thumbSize = switch (posterSize) {
+                  PosterSize.small => const Size(52, 74),
+                  PosterSize.medium => const Size(62, 88),
+                  PosterSize.large => const Size(74, 105),
+                };
+
+                if (landscape) {
+                  return LayoutBuilder(
+                    builder: (context, constraints) => GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      gridDelegate: vodGridDelegate(
+                        maxWidth: constraints.maxWidth,
+                        size: posterSize,
+                        landscape: true,
+                      ),
+                      itemCount: history.length,
+                      itemBuilder: (context, i) {
+                        final item = history[i];
+                        return VodCard(
+                          vod: VodItem(
+                            vodId: item.vodId,
+                            name: item.name,
+                            pic: item.pic,
+                          ),
+                          landscape: true,
+                          footer: _historyFooter(item),
+                          onTap: () => _resume(context, app, item),
+                          onLongPress: () => app.removeHistory(item.sourceId, item.vodId),
+                        );
+                      },
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  itemCount: history.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, i) {
+                    final item = history[i];
+                    return _HistoryTile(
+                      item: item,
+                      thumbSize: thumbSize,
+                      onTap: () => _resume(context, app, item),
+                      onDelete: () => app.removeHistory(item.sourceId, item.vodId),
+                    );
+                  },
                 );
               },
             ),
@@ -90,9 +135,15 @@ class HistoryPage extends StatelessWidget {
 }
 
 class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.item, required this.onTap, required this.onDelete});
+  const _HistoryTile({
+    required this.item,
+    required this.thumbSize,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   final HistoryItem item;
+  final Size thumbSize;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
@@ -113,8 +164,8 @@ class _HistoryTile extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(9),
               child: SizedBox(
-                width: 62,
-                height: 88,
+                width: thumbSize.width,
+                height: thumbSize.height,
                 child: item.pic.isEmpty
                     ? ColoredBox(
                         color: context.palette.surfaceHigh,
@@ -122,7 +173,8 @@ class _HistoryTile extends StatelessWidget {
                       )
                     : CachedNetworkImage(
                         imageUrl: normalizeImageUrl(item.pic),
-                      httpHeaders: imageHeadersFor(null),
+                      cacheManager: PosterCacheManager.instance,
+                        httpHeaders: imageHeadersFor(null),
                         fit: BoxFit.cover,
                         placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
                         errorWidget: (_, __, ___) => ColoredBox(
@@ -200,6 +252,14 @@ class _HistoryTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _historyFooter(HistoryItem item) {
+  return [
+    if (item.episodeName.isNotEmpty) '看到 ${item.episodeName}',
+    if (item.positionMs > 0) _formatDuration(item.position),
+    item.sourceName,
+  ].join(' · ');
 }
 
 String _formatDuration(Duration value) {

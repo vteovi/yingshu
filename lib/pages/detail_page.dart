@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../data/cms_api.dart';
 import '../models/cms_source.dart';
@@ -202,6 +203,7 @@ class _DetailPageState extends State<DetailPage> {
           if (pic.isNotEmpty)
             CachedNetworkImage(
               imageUrl: pic,
+              cacheManager: PosterCacheManager.instance,
               httpHeaders: imageHeadersFor(widget.source.api),
               fit: BoxFit.cover,
               placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),

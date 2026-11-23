@@ -18,8 +18,25 @@ class SubscriptionFetcher {
 
   final Dio _dio;
 
-  /// 下载订阅配置时使用的 UA，跟随设置页里的「请求 User-Agent」。
+  /// 下载订阅配置时使用的 UA（设置页里的「请求 User-Agent」）。
   String userAgent = kDefaultUserAgent;
+
+  /// 拉配置时依次尝试的 UA。
+  ///
+  /// 关键：很多 TVBox 配置站**按 UA 分发内容**。带 `okhttp/*` 才返回真配置，
+  /// 浏览器 UA 只给一句「站点创建成功」的占位 HTML（`https://box.iqinu.com`
+  /// 就是这样：浏览器 UA 拿到 990 字节占位页，okhttp 拿到 46KB 加密配置）。
+  /// 所以先用 TVBox 的 UA 试，真的不行再退回用户设置的浏览器 UA。
+  static const List<String> configUserAgents = <String>[
+    'okhttp/3.15',
+    'okhttp/3.12.11',
+    'okhttp/4.12.0',
+  ];
+
+  /// 配置请求的 Accept，与 TVBox 客户端一致（个别站点也看这个头）。
+  static const String _configAccept =
+      'text/html,application/xhtml+xml,application/xml;q=0.9,'
+      'image/avif,image/webp,image/apng,*/*;q=0.8';
 
   /// 最大嵌套层数：TVBox 的 urls 常常指向另一个配置。
   static const int maxDepth = 3;
@@ -42,7 +59,8 @@ class SubscriptionFetcher {
   }
 
   Future<SourceBundle> fetchBundle(String url, {int depth = 0, Set<String>? visited}) async {
-    final uri = Uri.tryParse(url.trim());
+    final normalized = _normalizeUrl(url);
+    final uri = Uri.tryParse(normalized);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
       throw Exception('订阅地址不合法');
     }
@@ -91,16 +109,64 @@ class SubscriptionFetcher {
   }
 
   Future<String> _download(String url) async {
-    final response = await _dio.get<String>(
-      url,
-      options: Options(
-        responseType: ResponseType.plain,
-        headers: {
-          'User-Agent': userAgent.trim().isEmpty ? kDefaultUserAgent : userAgent.trim(),
-        },
-      ),
-    );
-    return response.data ?? '';
+    String? fallbackHtml;
+    String? firstError;
+    // 先按 TVBox 客户端的 UA 试（配置站大多只对 okhttp 放行），再退回用户设置的 UA
+    final userAgents = <String>[
+      ...configUserAgents,
+      if (userAgent.trim().isNotEmpty) userAgent.trim(),
+      kDefaultUserAgent,
+    ];
+
+    for (final ua in userAgents) {
+      try {
+        final response = await _dio.get<String>(
+          url,
+          options: Options(
+            responseType: ResponseType.plain,
+            headers: {
+              'User-Agent': ua,
+              'Accept': _configAccept,
+            },
+          ),
+        );
+        final body = response.data ?? '';
+        if (body.trim().isEmpty) continue;
+        // 拿到的是真配置（JSON / 加密十六进制 / 非网页长文本）就用它
+        if (_looksLikeConfigPayload(body)) return body;
+        fallbackHtml ??= body;
+      } catch (error) {
+        firstError ??= '$error';
+      }
+    }
+    // 全部 UA 都只拿到网页时，把 HTML 交回去，导航页流程还能从里面找配置链接
+    if (fallbackHtml != null) return fallbackHtml;
+    throw Exception(firstError ?? '配置拉取失败');
+  }
+
+  /// 内容是否像「配置本体」：JSON、TVBox 加密十六进制，或其它非网页文本。
+  static bool _looksLikeConfigPayload(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return false;
+    if (t.startsWith('{') || t.startsWith('[')) return true;
+    if (t.startsWith('2423') || t.startsWith(r'$#')) return true;
+    if (t.length > 200 && !_looksLikeHtml(t) && !t.startsWith('<')) return true;
+    return false;
+  }
+
+  /// 用户常直接粘贴 `box.iqinu.com` 这种不带协议、甚至带 `http:` 漏斜杠的地址。
+  static String _normalizeUrl(String url) {
+    var value = url.trim();
+    if (value.isEmpty) return value;
+    if (value.startsWith('//')) return 'https:$value';
+    if (value.startsWith('http:') && !value.startsWith('http://')) {
+      value = 'http://${value.substring(5)}';
+    }
+    if (value.startsWith('https:') && !value.startsWith('https://')) {
+      value = 'https://${value.substring(6)}';
+    }
+    if (!value.contains('://') && value.contains('.')) return 'https://$value';
+    return value;
   }
 
   static bool _looksLikeHtml(String text) {

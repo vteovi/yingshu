@@ -1,7 +1,7 @@
 name: yingshu
 description: 影枢 CineHub —— 基于苹果CMS v10 采集接口的跨端流媒体播放器（订阅源聚合 / 点播 / 进度记忆）
 publish_to: 'none'
-version: 0.9.0+900
+version: 0.10.0+1000
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -17,6 +17,7 @@ dependencies:
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5
   cached_network_image: ^3.3.1
+  flutter_cache_manager: ^3.4.1
   file_selector: ^1.1.0
   video_player: ^2.9.5
   screen_brightness: ^2.1.6

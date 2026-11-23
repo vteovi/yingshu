@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../models/vod.dart';
 import '../theme/app_palette.dart';
@@ -139,6 +140,7 @@ class _Poster extends StatelessWidget {
     if (url.isEmpty) return placeholder;
     return CachedNetworkImage(
       imageUrl: url,
+      cacheManager: PosterCacheManager.instance,
       httpHeaders: imageHeadersFor(apiBase),
       fit: BoxFit.cover,
       fadeInDuration: const Duration(milliseconds: 200),

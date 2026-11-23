@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../data/cms_api.dart';
 import '../state/app_state.dart';
@@ -26,6 +27,11 @@ class _SearchPageState extends State<SearchPage> {
   String? _error;
   String? _filterSourceId;
 
+  /// 当前这轮搜索的序号 + 进度，用来丢弃过期回调、并显示「已查 M/N 个源」。
+  int _runId = 0;
+  int _done = 0;
+  int _total = 0;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -47,22 +53,37 @@ class _SearchPageState extends State<SearchPage> {
       return;
     }
 
+    final runId = ++_runId;
     setState(() {
       _loading = true;
       _error = null;
       _filterSourceId = null;
       _hits = const [];
+      _done = 0;
+      _total = sources.length;
     });
 
-    final hits = await app.api.searchAll(sources, keyword);
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _hits = hits;
-      if (hits.isEmpty) {
-        _error = '没有找到「$keyword」，换个关键词或更换订阅源再试';
-      }
-    });
+    // 边搜边上屏：哪个源先回来就先显示哪个源的结果
+    await app.api.searchAllStreaming(
+      sources,
+      keyword,
+      onSourceDone: (hits, source) {
+        if (!mounted || runId != _runId) return;
+        setState(() {
+          _done++;
+          if (hits.isNotEmpty) _hits = [..._hits, ...hits];
+        });
+      },
+      onAllDone: () {
+        if (!mounted || runId != _runId) return;
+        setState(() {
+          _loading = false;
+          if (_hits.isEmpty) {
+            _error = '没有找到「$keyword」，换个关键词或更换订阅源再试';
+          }
+        });
+      },
+    );
   }
 
   @override
@@ -146,10 +167,10 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildBody(int enabledCount) {
-    if (_loading) {
-      return LoadingView(text: '正在 $enabledCount 个源中检索…');
-    }
     if (_hits.isEmpty) {
+      if (_loading) {
+        return LoadingView(text: '正在 $enabledCount 个源中检索，已完成 $_done 个…');
+      }
       if (_error != null) {
         return EmptyView(
           icon: Icons.search_off_rounded,
@@ -172,12 +193,32 @@ class _SearchPageState extends State<SearchPage> {
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      itemCount: visible.length,
+      itemCount: visible.length + (_loading ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, i) => _SearchResultTile(
-        hit: visible[i],
-        onTap: () => _openDetail(visible[i]),
-      ),
+      itemBuilder: (context, i) {
+        if (i >= visible.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '还在检索… 已完成 $_done/$_total 个源',
+                  style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+                ),
+              ],
+            ),
+          );
+        }
+        final hit = visible[i];
+        return _SearchResultTile(hit: hit, onTap: () => _openDetail(hit));
+      },
     );
   }
 
@@ -222,7 +263,8 @@ class _SearchResultTile extends StatelessWidget {
                     )
                   : CachedNetworkImage(
                       imageUrl: normalizeImageUrl(vod.pic),
-                      httpHeaders: imageHeadersFor(null),
+                      cacheManager: PosterCacheManager.instance,
+                        httpHeaders: imageHeadersFor(null),
                       fit: BoxFit.cover,
                       placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
                       errorWidget: (_, __, ___) => ColoredBox(

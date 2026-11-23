@@ -13,25 +13,43 @@ import '../pages/detail_page.dart';
 const double _horizontalPadding = 16.0;
 const double _spacing = 12.0;
 
+/// 大屏时把目标宽度按比例放大，让「小 / 中 / 大」在平板上也是三档真实差异。
+///
+/// 手机（< 600dp）按基准值；小平板放大 1.15 倍；大屏放大 1.35 倍。
+double _wideScale(double maxWidth) {
+  if (maxWidth >= 1000) return 1.35;
+  if (maxWidth >= 700) return 1.2;
+  if (maxWidth >= 600) return 1.1;
+  return 1.0;
+}
+
 /// 每张竖版海报的目标宽度（单位 dp），按海报大小分档。
 ///
 /// 列数是「可用宽度 ÷ 目标宽度」取整，所以同一个档位在手机上列少、在平板上列多。
-double _targetTileWidth(PosterSize size) {
-  switch (size) {
-    case PosterSize.small:
-      return 104;
-    case PosterSize.medium:
-      return 158;
-    case PosterSize.large:
-      return 232;
-  }
+double _targetTileWidth(PosterSize size, double maxWidth) {
+  final base = switch (size) {
+    PosterSize.small => 104.0,
+    PosterSize.medium => 158.0,
+    PosterSize.large => 232.0,
+  };
+  return base * _wideScale(maxWidth);
+}
+
+/// 横版卡片的目标宽度：同样分三档，平板下放大。
+double _targetCardWidth(PosterSize size, double maxWidth) {
+  final base = switch (size) {
+    PosterSize.small => 200.0,
+    PosterSize.medium => 300.0,
+    PosterSize.large => 420.0,
+  };
+  return base * _wideScale(maxWidth);
 }
 
 /// 竖版网格：2:3 海报，列数随宽度与海报大小自适应。
 SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
   final available = maxWidth - _horizontalPadding * 2;
-  final target = _targetTileWidth(size);
-  final columns = (available / target).floor().clamp(1, 8);
+  final target = _targetTileWidth(size, maxWidth);
+  final columns = (available / target).floor().clamp(1, 10);
   final itemWidth = (available - _spacing * (columns - 1)) / columns;
   final itemHeight = itemWidth * 1.5 + 44;
   return SliverGridDelegateWithFixedCrossAxisCount(
@@ -42,27 +60,35 @@ SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
   );
 }
 
-/// 横版网格：16:10 封面 + 下方两行文字，单卡上限 420 宽（超宽就多排一列）。
+/// 横版网格：16:10 封面 + 图下一行文字，卡片宽度按海报大小分档。
 SliverGridDelegate _landscapeDelegate(double maxWidth, PosterSize size) {
-  const double maxExtent = 420;
   const double caption = 50;
   final available = maxWidth - _horizontalPadding * 2;
-  final columns = (available / maxExtent).ceil().clamp(1, 6);
-  final tileWidth = available / columns;
+  final target = _targetCardWidth(size, maxWidth);
+  final extent = target > available ? available : target;
+  final columns = (available / extent).floor().clamp(1, 8);
+  final tileWidth = (available - _spacing * (columns - 1)) / columns;
   final coverHeight = tileWidth / (16 / 10);
   final cardHeight = coverHeight + caption;
-  return SliverGridDelegateWithMaxCrossAxisExtent(
-    maxCrossAxisExtent: tileWidth,
-    childAspectRatio: tileWidth / cardHeight,
+  return SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: columns,
     mainAxisSpacing: 16,
     crossAxisSpacing: _spacing,
+    mainAxisExtent: cardHeight,
   );
 }
 
-/// 按当前设置选网格代理。
-SliverGridDelegate _delegateFor(double maxWidth, PosterSize size, bool landscape) {
+/// 按当前设置选网格代理。收藏 / 历史页复用同一套，保证三处排版一致。
+SliverGridDelegate vodGridDelegate({
+  required double maxWidth,
+  required PosterSize size,
+  required bool landscape,
+}) {
   return landscape ? _landscapeDelegate(maxWidth, size) : _portraitDelegate(maxWidth, size);
 }
+
+SliverGridDelegate _delegateFor(double maxWidth, PosterSize size, bool landscape) =>
+    vodGridDelegate(maxWidth: maxWidth, size: size, landscape: landscape);
 
 /// 首屏固定列表：首页「推荐」用。
 class VodGridView extends StatelessWidget {

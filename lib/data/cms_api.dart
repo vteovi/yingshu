@@ -211,6 +211,38 @@ class CmsApi {
     return hits;
   }
 
+  /// 边搜边返回：每个源一有结果就回调一次，调用方可以立刻上屏。
+  ///
+  /// [onSourceDone] 会在源返回（或失败）时调用，[hits] 是该源的结果（可能为空）。
+  /// [onAllDone] 在全部源都结束后调用一次。
+  Future<void> searchAllStreaming(
+    List<CmsSource> sources,
+    String keyword, {
+    int page = 1,
+    required void Function(List<SearchHit> hits, CmsSource source) onSourceDone,
+    void Function()? onAllDone,
+  }) async {
+    final keywordTrimmed = keyword.trim();
+    if (keywordTrimmed.isEmpty || sources.isEmpty) {
+      onAllDone?.call();
+      return;
+    }
+
+    await Future.wait(sources.map((source) async {
+      var hits = const <SearchHit>[];
+      try {
+        final pageResult = await search(source, keywordTrimmed, page: page);
+        hits = pageResult.videos
+            .map((vod) => SearchHit(source: source, vod: vod))
+            .toList(growable: false);
+      } catch (_) {
+        hits = const <SearchHit>[];
+      }
+      onSourceDone(hits, source);
+    }));
+    onAllDone?.call();
+  }
+
   Future<Map<String, dynamic>> _request(
     String apiUrl,
     Map<String, dynamic> params,
