@@ -40,3 +40,6 @@ build-log.txt
 
 build-*.log
 build-*.err
+
+# Kotlin 编译产物
+android/.kotlin/
