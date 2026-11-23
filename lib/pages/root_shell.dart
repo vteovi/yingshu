@@ -32,6 +32,9 @@ class _RootShellState extends State<RootShell> {
     final width = MediaQuery.of(context).size.width;
     final wide = width >= 900;
     final extended = width >= 1200;
+    final railBlue = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF4D8DFF)
+        : const Color(0xFF2F6BFF);
 
     final pages = const [
       HomePage(),
@@ -64,6 +67,17 @@ class _RootShellState extends State<RootShell> {
               minExtendedWidth: 148,
               // 和手机端一致：不要选中胶囊，只靠图标/文字变色
               indicatorColor: Colors.transparent,
+              selectedIconTheme: IconThemeData(size: 22, color: railBlue),
+              unselectedIconTheme: IconThemeData(size: 22, color: context.palette.textSecondary),
+              selectedLabelTextStyle: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: railBlue,
+              ),
+              unselectedLabelTextStyle: TextStyle(
+                fontSize: 12,
+                color: context.palette.textSecondary,
+              ),
               onDestinationSelected: (value) => setState(() => _index = value),
               destinations: [
                 for (final dest in _dests)
@@ -101,7 +115,10 @@ class _WeChatTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final selectedColor = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // 不用 colorScheme.primary：深色主题里它被调得很浅（#7FA6FF），
+    // 灰字→浅蓝看着像"变淡"而不是"变蓝"。这里直接给饱和蓝。
+    final selectedColor = isDark ? const Color(0xFF4D8DFF) : const Color(0xFF2F6BFF);
     final unselectedColor = palette.textSecondary;
 
     return Container(
@@ -141,6 +158,7 @@ class _WeChatTabBar extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 11,
                                 height: 1.1,
+                                fontWeight: i == index ? FontWeight.w600 : FontWeight.w400,
                                 color: i == index ? selectedColor : unselectedColor,
                               ),
                             ),
