@@ -81,7 +81,8 @@ class SourcesPage extends StatelessWidget {
               children: [
                 if (app.checking)
                   _CheckBanner(
-                    text: '正在检测 ${app.checkDone}/${app.checkTotal} 个源…',
+                    text: '正在检测 ${app.checkDone}/${app.checkTotal} 个源'
+                        ' · 可用 ${app.availableCount} · 不可用 ${app.unavailableCount}',
                   )
                 else if (app.availableCount + app.unavailableCount > 0)
                   _CheckBanner(
@@ -98,6 +99,7 @@ class SourcesPage extends StatelessWidget {
                       return _SourceCard(
                         source: source,
                         health: app.healthOf(source.id),
+                        checking: app.isCheckingSource(source.id),
                         isCurrent: app.currentSource?.id == source.id,
                         onTap: () => _openEdit(context, source),
                         onToggle: (value) => app.toggleSource(source.id, value),
@@ -348,12 +350,37 @@ class _CheckBanner extends StatelessWidget {
 }
 
 class _HealthChip extends StatelessWidget {
-  const _HealthChip({required this.health});
+  const _HealthChip({required this.health, this.checking = false});
 
   final SourceHealth health;
+  final bool checking;
 
   @override
   Widget build(BuildContext context) {
+    if (checking) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0x338FD6C8),
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 9,
+              height: 9,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.6,
+                color: const Color(0xFF8FD6C8).withValues(alpha: 0.9),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Text('检测中', style: TextStyle(fontSize: 10, color: Color(0xFF8FD6C8))),
+          ],
+        ),
+      );
+    }
     final Color color;
     switch (health.status) {
       case SourceHealthStatus.available:
@@ -386,6 +413,7 @@ class _SourceCard extends StatelessWidget {
   const _SourceCard({
     required this.source,
     required this.health,
+    this.checking = false,
     required this.isCurrent,
     required this.onTap,
     required this.onToggle,
@@ -394,6 +422,7 @@ class _SourceCard extends StatelessWidget {
 
   final CmsSource source;
   final SourceHealth health;
+  final bool checking;
   final bool isCurrent;
   final VoidCallback onTap;
   final ValueChanged<bool> onToggle;
@@ -432,7 +461,7 @@ class _SourceCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        _HealthChip(health: health),
+                        _HealthChip(health: health, checking: checking),
                         if (isCurrent) ...[
                           const SizedBox(width: 8),
                           Container(

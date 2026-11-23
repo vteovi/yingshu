@@ -65,6 +65,9 @@ class AppState extends ChangeNotifier {
   int _checkDone = 0;
   int _checkTotal = 0;
 
+  /// 正在被探测的源 id：列表里这些行实时显示「检测中」。
+  final Set<String> _checkingIds = <String>{};
+
   String? _currentSourceId;
   String _userAgent = kDefaultUserAgent;
   bool _autoPlayNext = true;
@@ -94,6 +97,9 @@ class AppState extends ChangeNotifier {
   int get checkDone => _checkDone;
   int get checkTotal => _checkTotal;
   double get checkProgress => _checkTotal == 0 ? 0 : _checkDone / _checkTotal;
+
+  /// 这个源此刻正在探测中（列表行显示 spinner）。
+  bool isCheckingSource(String sourceId) => _checkingIds.contains(sourceId);
 
   SourceHealth healthOf(String sourceId) =>
       _health[sourceId] ?? const SourceHealth();
@@ -301,6 +307,7 @@ class AppState extends ChangeNotifier {
     _checking = true;
     _checkDone = 0;
     _checkTotal = targets.length;
+    _checkingIds.clear();
     notifyListeners();
 
     // 限制并发，避免一次打几十个站点把网络和设备都拖住
@@ -308,6 +315,8 @@ class AppState extends ChangeNotifier {
     Future<void> worker() async {
       while (queue.isNotEmpty) {
         final source = queue.removeAt(0);
+        _checkingIds.add(source.id);
+        notifyListeners();
         final stopwatch = Stopwatch()..start();
         SourceHealth health;
         try {
@@ -332,6 +341,9 @@ class AppState extends ChangeNotifier {
           );
         }
         results[source.id] = health;
+        // 每条结果一出来就落到界面上：卡片上的状态、进度条、计数都立刻更新
+        _health[source.id] = health;
+        _checkingIds.remove(source.id);
         _checkDone++;
         notifyListeners();
       }
@@ -339,6 +351,7 @@ class AppState extends ChangeNotifier {
 
     final workerCount = targets.length < 4 ? targets.length : 4;
     await Future.wait(List<Future<void>>.generate(workerCount, (_) => worker()));
+    _checkingIds.clear();
 
     // 可用的在前并打开，不可用的在后并关闭；同组内保持原有顺序
     final okList = targets
