@@ -24,6 +24,18 @@ class SubscriptionFetcher {
   /// 最大嵌套层数：TVBox 的 urls 常常指向另一个配置。
   static const int maxDepth = 3;
 
+  /// TVBox 站点常把配置放在这些路径下，根域名只是首页（"站点创建成功"那种）。
+  static const List<String> configPathHints = [
+    'index.php',
+    'config.json',
+    'box.json',
+    'tvbox.json',
+    'api.json',
+    '1.json',
+    'config.txt',
+    'box.txt',
+  ];
+
   Future<List<CmsSource>> fetch(String url) async {
     final bundle = await fetchBundle(url);
     return bundle.sources;
@@ -40,8 +52,26 @@ class SubscriptionFetcher {
     final body = await _download(uri.toString());
     if (body.trim().isEmpty) throw Exception('订阅内容为空');
 
-    final bundle = parseSourceBundle(body);
-    if (bundle.sources.isEmpty && bundle.subscriptionUrls.isEmpty) {
+    var bundle = parseSourceBundle(body);
+
+    // 根路径很可能只是一个首页 HTML：先找页面里的配置链接，再试几个常见配置路径
+    if (bundle.isEmpty && depth == 0 && _looksLikeHtml(body)) {
+      for (final candidate in _configCandidates(body, uri)) {
+        if (!seen.add(candidate)) continue;
+        try {
+          final text = await _download(candidate);
+          if (text.trim().isEmpty) continue;
+          final parsed = parseSourceBundle(text);
+          if (parsed.isEmpty) continue;
+          bundle = parsed;
+          break;
+        } catch (_) {
+          // 这个路径不通，试下一个
+        }
+      }
+    }
+
+    if (bundle.isEmpty) {
       final hint = describeUnsupportedBody(body);
       throw Exception(hint ?? '未从订阅内容中解析到接口地址');
     }
@@ -71,5 +101,67 @@ class SubscriptionFetcher {
       ),
     );
     return response.data ?? '';
+  }
+
+  static bool _looksLikeHtml(String text) {
+    final head = text.trimLeft().toLowerCase();
+    return head.startsWith('<!doctype') ||
+        head.startsWith('<html') ||
+        head.contains('<body') ||
+        head.contains('<head');
+  }
+
+  /// 从首页 HTML 里找配置候选地址：页面上的链接优先，再补一组常见配置路径。
+  List<String> _configCandidates(String html, Uri base) {
+    final out = <String>[];
+    final seen = <String>{};
+
+    void add(Uri uri) {
+      final full = uri.toString();
+      if (!full.startsWith('http')) return;
+      if (seen.add(full) && !out.contains(full)) out.add(full);
+    }
+
+    final attrRe = RegExp(
+      r'''(?:href|src|data-url|data-src)\s*=\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    );
+    final hintRe = RegExp(
+      r'(?:tvbox|config|api\.php|provide/vod|\.json|\.txt)',
+      caseSensitive: false,
+    );
+    final assetRe = RegExp(
+      r'\.(?:css|js|mjs|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|mp4|m3u8|html?)(?:[?#]|$)',
+      caseSensitive: false,
+    );
+
+    for (final match in attrRe.allMatches(html)) {
+      final raw = match.group(1)!.trim();
+      if (raw.isEmpty || raw.startsWith('#') || raw.startsWith('javascript:')) continue;
+      final lower = raw.toLowerCase();
+      if (!hintRe.hasMatch(lower) || assetRe.hasMatch(lower)) continue;
+      try {
+        add(base.resolve(raw));
+      } catch (_) {}
+    }
+
+    // 页面跳转 / 脚本里直接写死的配置地址
+    for (final match in RegExp("https?://[^\\s\"'<>()]+", caseSensitive: false).allMatches(html)) {
+      final raw = match.group(0)!;
+      if (hintRe.hasMatch(raw) && !assetRe.hasMatch(raw)) {
+        try {
+          add(Uri.parse(raw));
+        } catch (_) {}
+      }
+    }
+
+    for (final hint in configPathHints) {
+      try {
+        add(base.resolve(hint));
+      } catch (_) {}
+    }
+
+    // 根路径本来就没路径时，优先试根下的固定名字
+    return out.take(10).toList(growable: false);
   }
 }

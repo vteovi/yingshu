@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../core/tvbox_crypto.dart';
 import '../models/cms_source.dart';
 
 /// 一次解析的结果：可直接入库的接口源 + 需要再拉一层的 TVBox 订阅地址。
@@ -24,9 +25,17 @@ class SourceBundle {
 /// - `{"sites":[{"name":"B站","api":"https://b.com/api.php/provide/vod/"}]}`
 /// - `{"urls":[{"url":"https://x.com/config.json","name":"合集"}]}`（需要再拉一层）
 /// - `{"api":"https://c.com/api.php/provide/vod/"}`
+/// - TVBox 加密配置：`$#key#$` + AES-128-CBC 密文 + 13 字节 IV（十六进制文本）
+///
+/// 大部分站点标着 `type:3`（spider，需要 jar / drpy），但真实采集接口常常藏在
+/// `ext`（对象 / JSON 字符串 / 数组）里，这种情况按 `ext` 里的接口导入。
 SourceBundle parseSourceBundle(String text) {
-  final trimmed = text.trim();
+  var trimmed = text.trim();
   if (trimmed.isEmpty) return const SourceBundle();
+
+  // TVBox 加密配置（`$#key#$` + AES-128-CBC 密文 + 13 字节 IV）：先解出明文 JSON
+  final decrypted = TvBoxCrypto.decode(trimmed);
+  if (decrypted != null) trimmed = decrypted.trim();
 
   dynamic decoded;
   try {
@@ -102,27 +111,29 @@ List<CmsSource> _parseJsonList(List<dynamic> raw) {
 }
 
 /// 把一条 TVBox site / 订阅条目换算成苹果CMS接口地址；无法直接播放的返回 null。
+///
+/// TVBox 的 `type` 3/4 是 spider（需要 jar / drpy 插件，影枢跑不了），但大量配置
+/// 把**真实的 maccms 采集接口**放在 `ext` 里，这种照样能导入。
 CmsSource? _sourceFromMap(Map<String, dynamic> json) {
   final type = json['type'];
-  // 0 = XML，4/5 = 需要 TVBox 内置解析器，本应用都接不了
-  if (type is int && (type == 0 || type == 4 || type == 5)) return null;
+  // 0 = XML 接口，本应用只支持 JSON 版苹果CMS接口
+  if (type is int && type == 0) return null;
 
   final apiRaw = (json['api'] ?? json['apiUrl'] ?? json['api_url'] ?? '').toString().trim();
-  final extRaw = (json['ext'] ?? '').toString().trim();
   final urlRaw = (json['url'] ?? '').toString().trim();
 
   String? api;
-  if (apiRaw.startsWith('http')) {
-    api = apiRaw;
-  } else if (urlRaw.startsWith('http') && !_looksLikeConfig(urlRaw)) {
-    api = urlRaw;
-  } else {
-    api = _resolveExt(extRaw);
+  for (final candidate in [apiRaw, urlRaw]) {
+    if (_isUsableApi(candidate)) {
+      api = candidate.trim();
+      break;
+    }
   }
-  if (api == null && extRaw.startsWith('http')) api = extRaw;
+  if (api == null) {
+    final extUrl = _extUrl(json['ext']);
+    if (extUrl != null && _looksLikeMaccmsApi(extUrl)) api = extUrl;
+  }
   if (api == null) return null;
-
-  // TVBox 的配置地址（.json / .txt）不是接口，交给上层继续拉取
   if (_looksLikeConfig(api)) return null;
 
   final rawName = (json['name'] ?? json['title'] ?? json['key'] ?? '').toString().trim();
@@ -134,20 +145,67 @@ CmsSource? _sourceFromMap(Map<String, dynamic> json) {
   );
 }
 
-/// ext 可能是 JSON 字符串：{"url":"https://...","ext":...}
-String? _resolveExt(String ext) {
-  if (ext.startsWith('http')) return ext;
-  if (!ext.startsWith('{')) return null;
-  try {
-    final decoded = jsonDecode(ext);
-    if (decoded is Map) {
-      for (final key in const ['url', 'api', 'ext', 'site', 'baseUrl', 'base_url']) {
-        final value = decoded[key];
-        if (value is String && value.trim().startsWith('http')) return value.trim();
-      }
+/// 看起来就是一个能直接用的采集接口：http 地址，且不是脚本 / 配置 / 多域名列表。
+bool _isUsableApi(String value) {
+  final url = value.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  if (url.contains(',') || url.contains(' ')) return false;
+  return !_looksLikeAsset(url);
+}
+
+/// 从 TVBox 的 `ext` 里挖接口地址（对象 / JSON 字符串 / 数组 / 纯地址都认）。
+String? _extUrl(dynamic ext) {
+  if (ext == null) return null;
+  if (ext is Map) {
+    for (final key in const ['url', 'api', 'extend', 'siteUrl', 'site', 'baseUrl', 'base_url']) {
+      final value = ext[key];
+      if (value is String && value.trim().startsWith('http')) return value.trim();
     }
-  } catch (_) {}
-  return null;
+    for (final value in ext.values) {
+      final nested = _extUrl(value);
+      if (nested != null) return nested;
+    }
+    return null;
+  }
+  if (ext is List) {
+    for (final item in ext) {
+      final nested = _extUrl(item);
+      if (nested != null) return nested;
+    }
+    return null;
+  }
+  final text = ext.toString().trim();
+  if (text.isEmpty) return null;
+  if (text.startsWith('http')) return text;
+  if (!text.startsWith('{') && !text.startsWith('[')) {
+    // 配置作者偶尔把 JSON 写坏，这里宽松匹配一下里面的地址
+    final match = RegExp(
+      r'''["']?(?:url|api|extend|siteUrl)["']?\s*[:=]\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    ).firstMatch(text);
+    final found = match?.group(1);
+    return (found != null && found.startsWith('http')) ? found : null;
+  }
+  try {
+    return _extUrl(jsonDecode(text));
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 是否像 maccms 采集接口（`api.php/provide/vod`、`api.php/v1.vod`、`inc/api_mac10_all.php`…）。
+///
+/// 用来过滤 spider 源 `ext` 里的干扰项：drpy 脚本、配置文件、多域名列表都不是接口。
+bool _looksLikeMaccmsApi(String url) {
+  if (!_isUsableApi(url)) return false;
+  final lower = url.toLowerCase();
+  return lower.contains('api') || lower.contains('.php') || lower.contains('provide/vod');
+}
+
+/// 明显是资源文件而不是接口：`.json / .txt / .js / .mjs / .yml`。
+bool _looksLikeAsset(String url) {
+  final lower = url.toLowerCase();
+  return RegExp(r'\.(?:json|txt|js|mjs|ya?ml)(?:[?#]|$)').hasMatch(lower);
 }
 
 bool _looksLikeConfig(String url) {
@@ -199,6 +257,12 @@ String? describeUnsupportedBody(String text) {
   final trimmed = text.trim();
   if (trimmed.isEmpty) return '订阅内容为空';
 
+  // 加密配置写过但一条源都没剩下：说明解密没问题，是内容里没有能直接播的接口
+  if (TvBoxCrypto.decode(trimmed) != null) {
+    return '这是 TVBox 加密配置，影枢已经解开了，但里面都是需要插件引擎的 spider 源，'
+        '没有可直接播放的苹果CMS接口';
+  }
+
   final lower = trimmed.toLowerCase();
   if (lower.startsWith('<!doctype') ||
       lower.startsWith('<html') ||
@@ -209,15 +273,15 @@ String? describeUnsupportedBody(String text) {
   }
 
   if (RegExp(r'^\$#[^#]*#\$').hasMatch(trimmed)) {
-    return '这是 TVBox 的加密配置（`\$#密钥#\$` 前缀 + 密文），影枢目前只支持明文 JSON / TXT';
+    return '这段内容是 TVBox 加密配置，但用通用算法解不开（可能换了密钥或换了加密方式）';
   }
 
   final compact = trimmed.replaceAll(RegExp(r'\s'), '');
   if (compact.length >= 256 &&
       compact.length.isEven &&
       RegExp(r'^[0-9a-fA-F]+$').hasMatch(compact)) {
-    return '这段内容全是十六进制字符，通常是被加密（或二次编码）的 TVBox 配置，'
-        '明文解析器读不出来';
+    return '这段内容全是十六进制字符，但没有 TVBox 加密头部标记（\$#key#\$），'
+        '不是常见的加密配置';
   }
 
   if (lower.startsWith('%pdf')) return '这是 PDF 文件，不是订阅配置';
