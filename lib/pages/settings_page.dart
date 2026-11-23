@@ -112,6 +112,39 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.view_quilt_outlined, size: 24),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('海报排布', style: TextStyle(fontSize: 15)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '规整＝统一裁成 2:3 对齐；原始比例＝按每张图自身宽高比排成瀑布流',
+                            style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SegmentedButton<PosterLayout>(
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                      segments: [
+                        for (final layout in PosterLayout.values)
+                          ButtonSegment<PosterLayout>(value: layout, label: Text(layout.label)),
+                      ],
+                      selected: {app.posterLayout},
+                      onSelectionChanged: (value) => app.setPosterLayout(value.first),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
               SwitchListTile(
                 secondary: const Icon(Icons.view_agenda_outlined),
                 title: const Text('横向卡片模式'),

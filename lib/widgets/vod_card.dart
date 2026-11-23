@@ -138,14 +138,19 @@ class _Poster extends StatelessWidget {
 
     final url = normalizeImageUrl(pic, api: apiBase);
     if (url.isEmpty) return placeholder;
-    return CachedNetworkImage(
-      imageUrl: url,
-      cacheManager: PosterCacheManager.instance,
-      httpHeaders: imageHeadersFor(apiBase),
+    // 用 ImageProvider 而不是 CachedNetworkImage：解码结果会进 Flutter 内存缓存，
+    // 切标签/返回上一页时同一张海报直接命中，不会先闪一下空白再淡入。
+    return Image(
+      image: CachedNetworkImageProvider(
+        url,
+        cacheManager: PosterCacheManager.instance,
+        headers: imageHeadersFor(apiBase),
+        maxWidth: 480,
+      ),
       fit: BoxFit.cover,
-      fadeInDuration: const Duration(milliseconds: 200),
-      placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
-      errorWidget: (_, __, ___) => placeholder,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.low,
+      errorBuilder: (_, __, ___) => placeholder,
     );
   }
 }

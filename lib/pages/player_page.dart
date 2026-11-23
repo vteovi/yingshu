@@ -575,13 +575,27 @@ class _PlayerPageState extends State<PlayerPage> {
   static const List<(String, double?)> _aspectOptions = [
     ('自适应（按片源原始比例）', null),
     ('16 : 9（宽屏）', 16 / 9),
+    ('16 : 10', 16 / 10),
     ('4 : 3', 4 / 3),
     ('21 : 9（超宽）', 21 / 9),
     ('2.35 : 1（影院）', 2.35),
     ('1 : 1（方形）', 1.0),
-    ('9 : 16（竖屏铺满）', 9 / 16),
+    ('9 : 16（竖屏）', 9 / 16),
     ('3 : 4（竖屏）', 3 / 4),
+    ('9 : 21（手机竖屏）', 9 / 21),
   ];
+
+  void _applyAspect(String label, double? ratio) {
+    setState(() {
+      _aspectOverride = ratio;
+      _aspectLabel = label;
+    });
+    // 选竖屏比例（9:16、3:4）时把屏幕也转到竖屏，不然画面只是缩小一条、
+    // 两边还留着大黑边；选宽屏比例则转回横屏。任何方向下都能选，不受当前方向限制。
+    final natural = _value.aspectRatio > 0 ? _value.aspectRatio : 16 / 9;
+    final effective = ratio ?? natural;
+    _applyOrientation(effective);
+  }
 
   void _showAspectSheet() {
     _hideTimer?.cancel();
@@ -589,47 +603,71 @@ class _PlayerPageState extends State<PlayerPage> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF12161E),
       builder: (sheetContext) {
+        final textStyle = const TextStyle(fontSize: 14, color: _kText);
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.aspect_ratio_rounded, size: 18),
-                    SizedBox(width: 8),
-                    Text('画面比例', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                  ],
-                ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.aspect_ratio_rounded, size: 18, color: _kText),
+                      const SizedBox(width: 8),
+                      const Text(
+                        '画面比例',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: _kText,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(_aspectLabel, style: const TextStyle(fontSize: 12, color: _kTextDim)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final option in _aspectOptions)
+                        ChoiceChip(
+                          label: Text(option.$1),
+                          labelStyle: textStyle.copyWith(
+                            fontWeight: _aspectOverride == option.$2 &&
+                                    _aspectLabel == option.$1
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                          ),
+                          selected: _aspectLabel == option.$1,
+                          onSelected: (_) {
+                            Navigator.of(sheetContext).pop();
+                            _applyAspect(option.$1, option.$2);
+                          },
+                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.edit_rounded, size: 16, color: _kText),
+                        label: const Text('自定义比例…'),
+                        labelStyle: textStyle,
+                        onPressed: () {
+                          Navigator.of(sheetContext).pop();
+                          _showCustomAspectDialog();
+                        },
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              for (final option in _aspectOptions)
-                ListTile(
-                  dense: true,
-                  title: Text(option.$1, style: const TextStyle(fontSize: 14)),
-                  trailing: _aspectLabel.startsWith(option.$1.substring(0, 2))
-                      ? const Icon(Icons.check_rounded, size: 18)
-                      : null,
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    setState(() {
-                      _aspectOverride = option.$2;
-                      _aspectLabel = option.$1;
-                    });
-                  },
-                ),
-              ListTile(
-                dense: true,
-                leading: const Icon(Icons.edit_rounded, size: 18),
-                title: const Text('自定义比例…', style: TextStyle(fontSize: 14)),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _showCustomAspectDialog();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
+            ),
           ),
         );
       },
@@ -686,10 +724,7 @@ class _PlayerPageState extends State<PlayerPage> {
       },
     );
     if (ratio == null || !mounted) return;
-    setState(() {
-      _aspectOverride = ratio;
-      _aspectLabel = '自定义 ${ratio.toStringAsFixed(2)} : 1';
-    });
+    _applyAspect('自定义 ${ratio.toStringAsFixed(2)} : 1', ratio);
   }
 
   @override

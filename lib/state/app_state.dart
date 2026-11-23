@@ -48,6 +48,27 @@ enum PosterSize {
   }
 }
 
+/// 海报排布方式：
+/// - [grid]：规整网格，海报统一按 2:3 裁切，行列对齐；
+/// - [actual]：按海报图实际宽高比排（瀑布流），不再统一裁切，长短不一。
+enum PosterLayout {
+  grid('grid', '规整'),
+  actual('actual', '原始比例');
+
+  const PosterLayout(this.key, this.label);
+
+  final String key;
+  final String label;
+
+  static PosterLayout parse(Object? raw) {
+    final value = raw?.toString();
+    for (final item in values) {
+      if (item.key == value) return item;
+    }
+    return PosterLayout.grid;
+  }
+}
+
 /// 全局状态：订阅源、收藏、历史、设置。
 class AppState extends ChangeNotifier {
   AppState(this._store);
@@ -76,6 +97,7 @@ class AppState extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   PosterSize _posterSize = PosterSize.medium;
   bool _landscapeCard = false;
+  PosterLayout _posterLayout = PosterLayout.grid;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
@@ -85,6 +107,7 @@ class AppState extends ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   PosterSize get posterSize => _posterSize;
   bool get landscapeCard => _landscapeCard;
+  PosterLayout get posterLayout => _posterLayout;
 
   List<CmsSource> get sources => List.unmodifiable(_sources);
   List<CmsSource> get enabledSources =>
@@ -151,6 +174,7 @@ class AppState extends ChangeNotifier {
     _themeMode = _parseThemeMode(settings['themeMode']);
     _posterSize = PosterSize.parse(settings['posterSize']);
     _landscapeCard = settings['landscapeCard'] is bool ? settings['landscapeCard'] as bool : false;
+    _posterLayout = PosterLayout.parse(settings['posterLayout']);
     _api.userAgent = _userAgent;
     _fetcher.userAgent = _userAgent;
 
@@ -554,6 +578,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPosterLayout(PosterLayout layout) async {
+    if (_posterLayout == layout) return;
+    _posterLayout = layout;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> _persistSettings() {
     return _store.writeMap(LocalStore.keySettings, {
       'userAgent': _userAgent,
@@ -563,6 +594,7 @@ class AppState extends ChangeNotifier {
       'themeMode': _themeMode.name,
       'posterSize': _posterSize.key,
       'landscapeCard': _landscapeCard,
+      'posterLayout': _posterLayout.key,
     });
   }
 }

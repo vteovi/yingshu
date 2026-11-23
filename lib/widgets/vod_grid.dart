@@ -1,6 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_cache.dart';
+import '../core/image_util.dart';
 import '../data/cms_api.dart';
 import '../models/cms_source.dart';
 import '../models/vod.dart';
@@ -90,6 +93,167 @@ SliverGridDelegate vodGridDelegate({
 SliverGridDelegate _delegateFor(double maxWidth, PosterSize size, bool landscape) =>
     vodGridDelegate(maxWidth: maxWidth, size: size, landscape: landscape);
 
+/// 海报原始宽高比（宽 ÷ 高）缓存。
+///
+/// 「原始比例」模式要让每张卡按图片自身比例排，所以先量出比例再排版。
+/// 量不出来（图还没下载完）时先按 2:3 占位，量到后自动重排一次。
+class PosterRatioStore extends ChangeNotifier {
+  PosterRatioStore._();
+
+  static final PosterRatioStore instance = PosterRatioStore._();
+
+  final Map<String, double> _ratios = {};
+
+  double? ratioOf(String url) => _ratios[url];
+
+  void put(String url, double ratio) {
+    if (ratio <= 0 || !ratio.isFinite) return;
+    final old = _ratios[url];
+    if (old != null && (old - ratio).abs() < 0.02) return;
+    _ratios[url] = ratio;
+    notifyListeners();
+  }
+}
+
+/// 解析一次图片尺寸，把宽高比写进 [PosterRatioStore]。
+void _probePosterRatio(BuildContext context, String url, String? api) {
+  if (url.isEmpty || PosterRatioStore.instance.ratioOf(url) != null) return;
+  final provider = CachedNetworkImageProvider(
+    url,
+    cacheManager: PosterCacheManager.instance,
+    headers: imageHeadersFor(api),
+    maxWidth: 480,
+  );
+  final stream = provider.resolve(createLocalImageConfiguration(context));
+  late ImageStreamListener listener;
+  listener = ImageStreamListener(
+    (info, _) {
+      PosterRatioStore.instance.put(url, info.image.width / info.image.height);
+      stream.removeListener(listener);
+    },
+    onError: (_, __) => stream.removeListener(listener),
+  );
+  stream.addListener(listener);
+}
+
+/// 「原始比例」模式的瀑布流：图片不裁切，按自身宽高比决定卡片高度，
+/// 逐张填进当前最矮的一列，于是行与行之间错落不齐。
+class _MasonryGrid extends StatelessWidget {
+  const _MasonryGrid({
+    required this.videos,
+    required this.source,
+    required this.size,
+    required this.maxWidth,
+    required this.landscape,
+  });
+
+  final List<VodItem> videos;
+  final CmsSource source;
+  final PosterSize size;
+  final double maxWidth;
+  final bool landscape;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: PosterRatioStore.instance,
+      builder: (context, _) {
+        final available = maxWidth - _horizontalPadding * 2;
+        final target = landscape
+            ? _targetCardWidth(size, maxWidth)
+            : _targetTileWidth(size, maxWidth);
+        final columns = (available / target).floor().clamp(1, 8);
+        final itemWidth = (available - _spacing * (columns - 1)) / columns;
+
+        final heights = List<double>.filled(columns, 0);
+        final placements = <_Placement>[];
+        for (final vod in videos) {
+          final url = normalizeImageUrl(vod.pic, api: source.api);
+          final ratio = PosterRatioStore.instance.ratioOf(url) ??
+              (landscape ? 16 / 10 : 2 / 3);
+          final caption = landscape ? 52.0 : 46.0;
+          final height = itemWidth / ratio + caption;
+          var column = 0;
+          for (var i = 1; i < columns; i++) {
+            if (heights[i] < heights[column]) column = i;
+          }
+          placements.add(_Placement(
+            vod: vod,
+            left: column * (itemWidth + _spacing),
+            top: heights[column],
+            width: itemWidth,
+            height: height,
+          ));
+          heights[column] += height + 16;
+        }
+        final total = heights.reduce((a, b) => a > b ? a : b);
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          for (final vod in videos) {
+            final url = normalizeImageUrl(vod.pic, api: source.api);
+            _probePosterRatio(context, url, source.api);
+          }
+        });
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            _horizontalPadding,
+            10,
+            _horizontalPadding,
+            0,
+          ),
+          child: SizedBox(
+            height: total,
+            child: Stack(
+              children: [
+                for (final p in placements)
+                  Positioned(
+                    left: p.left,
+                    top: p.top,
+                    width: p.width,
+                    height: p.height,
+                    child: VodCard(
+                      vod: p.vod,
+                      apiBase: source.api,
+                      landscape: landscape,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => DetailPage(
+                            source: source,
+                            vodId: p.vod.vodId,
+                            initialName: p.vod.name,
+                            initialPic: p.vod.pic,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Placement {
+  _Placement({
+    required this.vod,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  final VodItem vod;
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+}
+
 /// 首屏固定列表：首页「推荐」用。
 class VodGridView extends StatelessWidget {
   const VodGridView({
@@ -110,10 +274,44 @@ class VodGridView extends StatelessWidget {
     // 在 build 期取一次设置：LayoutBuilder 里再读 Provider 会触发布局期注册依赖的断言
     final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
     final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+    final layout = context.select<AppState, PosterLayout>((s) => s.posterLayout);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      precachePosters(context, videos.map((v) => v.pic), api: source.api);
+    });
 
     final content = LayoutBuilder(
       builder: (context, constraints) {
         final delegate = _delegateFor(constraints.maxWidth, posterSize, landscape);
+        final footer = SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(_horizontalPadding, 8, _horizontalPadding, 24),
+            child: Text(
+              footerText ?? '最近更新 ${videos.length} 部 · 下拉刷新',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+            ),
+          ),
+        );
+
+        if (layout == PosterLayout.actual) {
+          return CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: _MasonryGrid(
+                  videos: videos,
+                  source: source,
+                  size: posterSize,
+                  maxWidth: constraints.maxWidth,
+                  landscape: landscape,
+                ),
+              ),
+              footer,
+            ],
+          );
+        }
 
         return CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -145,16 +343,7 @@ class VodGridView extends StatelessWidget {
                 ),
               ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(_horizontalPadding, 8, _horizontalPadding, 24),
-                child: Text(
-                  footerText ?? '最近更新 ${videos.length} 部 · 下拉刷新',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: context.palette.textFaint),
-                ),
-              ),
-            ),
+            footer,
           ],
         );
       },
@@ -184,9 +373,14 @@ class VodPagedGrid extends StatefulWidget {
   State<VodPagedGrid> createState() => _VodPagedGridState();
 }
 
-class _VodPagedGridState extends State<VodPagedGrid> {
+class _VodPagedGridState extends State<VodPagedGrid>
+    with AutomaticKeepAliveClientMixin {
   final ScrollController _controller = ScrollController();
   final List<VodItem> _items = [];
+
+  /// 标签滑出屏幕后不要销毁，回来时海报和列表都在，不会重新转圈。
+  @override
+  bool get wantKeepAlive => true;
 
   int _page = 0;
   int _pageCount = 1;
@@ -259,8 +453,17 @@ class _VodPagedGridState extends State<VodPagedGrid> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
     final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+    final layout = context.select<AppState, PosterLayout>((s) => s.posterLayout);
+
+    if (_items.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        precachePosters(context, _items.map((v) => v.pic), api: widget.source.api);
+      });
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -277,33 +480,44 @@ class _VodPagedGridState extends State<VodPagedGrid> {
         return CustomScrollView(
           controller: _controller,
           slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(_horizontalPadding, 12, _horizontalPadding, 8),
-              sliver: SliverGrid(
-                gridDelegate: delegate,
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) {
-                    final vod = _items[i];
-                    return VodCard(
-                      vod: vod,
-                      apiBase: widget.source.api,
-                      landscape: landscape,
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => DetailPage(
-                            source: widget.source,
-                            vodId: vod.vodId,
-                            initialName: vod.name,
-                            initialPic: vod.pic,
+            if (layout == PosterLayout.actual)
+              SliverToBoxAdapter(
+                child: _MasonryGrid(
+                  videos: _items,
+                  source: widget.source,
+                  size: posterSize,
+                  maxWidth: constraints.maxWidth,
+                  landscape: landscape,
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(_horizontalPadding, 12, _horizontalPadding, 8),
+                sliver: SliverGrid(
+                  gridDelegate: delegate,
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final vod = _items[i];
+                      return VodCard(
+                        vod: vod,
+                        apiBase: widget.source.api,
+                        landscape: landscape,
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => DetailPage(
+                              source: widget.source,
+                              vodId: vod.vodId,
+                              initialName: vod.name,
+                              initialPic: vod.pic,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
-                  childCount: _items.length,
+                      );
+                    },
+                    childCount: _items.length,
+                  ),
                 ),
               ),
-            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),

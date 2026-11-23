@@ -2,8 +2,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/external_player.dart';
 import '../core/image_cache.dart';
 import '../core/image_util.dart';
+import '../core/play_resolver.dart';
 import '../data/cms_api.dart';
 import '../models/cms_source.dart';
 import '../models/episode.dart';
@@ -41,6 +43,7 @@ class _DetailPageState extends State<DetailPage> {
   int _groupIndex = 0;
   bool _descriptionExpanded = false;
   bool _autoPlayHandled = false;
+  bool _openingExternal = false;
 
   @override
   void initState() {
@@ -102,6 +105,42 @@ class _DetailPageState extends State<DetailPage> {
         ),
       ),
     );
+  }
+
+  /// 用第三方播放器打开当前选集：先解析出真正的 m3u8/mp4 地址，再交给系统。
+  Future<void> _openExternal(
+    VodItem vod,
+    PlaySourceGroup group,
+    int index,
+  ) async {
+    if (_openingExternal) return;
+    setState(() => _openingExternal = true);
+    final app = context.read<AppState>();
+    final episode = group.episodes[index];
+    try {
+      final url = await PlayResolver().resolve(
+        episode.url,
+        userAgent: app.userAgent,
+      );
+      if (!mounted) return;
+      await ExternalPlayer.open(url, title: '${vod.name} · ${episode.name}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('已交给系统选择播放器：$url'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('打开失败：$error')));
+    } finally {
+      if (mounted) setState(() => _openingExternal = false);
+    }
   }
 
   @override
@@ -461,6 +500,24 @@ class _DetailPageState extends State<DetailPage> {
                 icon: const Icon(Icons.play_arrow_rounded),
                 label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filledTonal(
+              tooltip: '用第三方播放器打开',
+              onPressed: (groups.isEmpty || _openingExternal)
+                  ? null
+                  : () => _openExternal(
+                        vod,
+                        groups[groupIndex],
+                        resumeIndex ?? 0,
+                      ),
+              icon: _openingExternal
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.open_in_new_rounded),
             ),
             const SizedBox(width: 8),
             IconButton.filledTonal(
