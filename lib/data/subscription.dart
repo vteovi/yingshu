@@ -42,7 +42,8 @@ class SubscriptionFetcher {
 
     final bundle = parseSourceBundle(body);
     if (bundle.sources.isEmpty && bundle.subscriptionUrls.isEmpty) {
-      throw Exception('未从订阅内容中解析到接口地址');
+      final hint = describeUnsupportedBody(body);
+      throw Exception(hint ?? '未从订阅内容中解析到接口地址');
     }
 
     final sources = <CmsSource>[...bundle.sources];

@@ -195,7 +195,8 @@ class SourcesPage extends StatelessWidget {
     final bundle = parseSourceBundle(text);
     if (bundle.isEmpty) {
       if (!context.mounted) return;
-      _snack(context, '没有解析到有效的接口地址');
+      final hint = describeUnsupportedBody(text);
+      _snack(context, hint ?? '没有解析到有效的接口地址');
       return;
     }
 
@@ -241,7 +242,10 @@ class SourcesPage extends StatelessWidget {
     final name = picked.name;
     if (bundle.isEmpty) {
       if (!context.mounted) return;
-      _snack(context, '「$name」里没有找到可用的接口地址');
+      final hint = describeUnsupportedBody(text);
+      _snack(context, hint == null
+          ? '「$name」里没有找到可用的接口地址'
+          : '「$name」导入失败：$hint');
       return;
     }
 

@@ -193,3 +193,34 @@ List<CmsSource> _dedupe(List<CmsSource> input) {
   }
   return result;
 }
+
+/// 判断订阅内容为什么解析不了，给出能看懂的提示；能正常解析时返回 null。
+String? describeUnsupportedBody(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return '订阅内容为空';
+
+  final lower = trimmed.toLowerCase();
+  if (lower.startsWith('<!doctype') ||
+      lower.startsWith('<html') ||
+      lower.contains('<body') ||
+      lower.contains('<head')) {
+    return '这个地址返回的是网页（HTML），不是配置文件。'
+        'TVBox 的订阅链接一般要具体到配置路径（如 /xxx.json），根目录多半只是站点首页';
+  }
+
+  if (RegExp(r'^\$#[^#]*#\$').hasMatch(trimmed)) {
+    return '这是 TVBox 的加密配置（`\$#密钥#\$` 前缀 + 密文），影枢目前只支持明文 JSON / TXT';
+  }
+
+  final compact = trimmed.replaceAll(RegExp(r'\s'), '');
+  if (compact.length >= 256 &&
+      compact.length.isEven &&
+      RegExp(r'^[0-9a-fA-F]+$').hasMatch(compact)) {
+    return '这段内容全是十六进制字符，通常是被加密（或二次编码）的 TVBox 配置，'
+        '明文解析器读不出来';
+  }
+
+  if (lower.startsWith('%pdf')) return '这是 PDF 文件，不是订阅配置';
+  return null;
+}
+
