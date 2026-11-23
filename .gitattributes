@@ -1,6 +1,11 @@
 # 统一换行，避免 Windows / macOS 协作时整文件 diff
 * text=auto eol=lf
 
+# cmd 的批处理必须 CRLF，否则双击解析错行；PowerShell 脚本也用 CRLF 更稳
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
 *.png binary
 *.jpg binary
 *.ico binary
