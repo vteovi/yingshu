@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,6 +24,9 @@ class _HomePageState extends State<HomePage> {
   AppState? _app;
   Future<CmsIndex>? _future;
   String? _loadedSourceId;
+
+  /// 上一次启动缓存下来的首页数据：有它就先用它渲染，网络结果回来再替换。
+  CmsIndex? _cached;
 
   @override
   void initState() {
@@ -49,8 +54,17 @@ class _HomePageState extends State<HomePage> {
     final app = _app;
     if (app == null || !mounted) return;
     final source = app.currentSource;
+    // 先把上次的首页数据贴出来：海报图有磁盘缓存，基本能立刻出图；
+    // 网络请求在后台跑，回来后再整体替换（同一个源的分类数一般不变，标签页状态会保留）。
+    final cached = source == null ? null : app.cachedIndex(source.id);
     setState(() {
-      _future = source == null ? null : app.api.fetchIndex(source);
+      _cached = cached;
+      _future = source == null
+          ? null
+          : app.api.fetchIndex(source).then((index) {
+              unawaited(app.saveIndex(source.id, index));
+              return index;
+            });
     });
   }
 
@@ -59,7 +73,10 @@ class _HomePageState extends State<HomePage> {
     if (app == null) return;
     final source = app.currentSource;
     if (source == null) return;
-    final future = app.api.fetchIndex(source);
+    final future = app.api.fetchIndex(source).then((index) {
+      unawaited(app.saveIndex(source.id, index));
+      return index;
+    });
     setState(() => _future = future);
     try {
       await future;
@@ -127,9 +144,29 @@ class _HomePageState extends State<HomePage> {
                   return const LoadingView(text: '准备中…');
                 }
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const LoadingView(text: '正在拉取首页…');
+                  final cached = _cached;
+                  if (cached == null) {
+                    return const LoadingView(text: '正在拉取首页…');
+                  }
+                  // 有缓存：先把首页画出来，网络刷新在后台跑。
+                  return _HomeTabs(
+                    key: ValueKey('${source.id}_${cached.categories.length}'),
+                    source: source,
+                    index: cached,
+                    onRefresh: _refresh,
+                  );
                 }
                 if (snapshot.hasError) {
+                  final cached = _cached;
+                  if (cached != null) {
+                    // 断网也能看上次的首页内容
+                    return _HomeTabs(
+                      key: ValueKey('${source.id}_${cached.categories.length}'),
+                      source: source,
+                      index: cached,
+                      onRefresh: _refresh,
+                    );
+                  }
                   return ErrorView(
                     message: _describeError(snapshot.error),
                     onRetry: _reload,

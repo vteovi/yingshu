@@ -22,6 +22,13 @@ class CmsCategory {
 
   final String typeId;
   final String typeName;
+
+  Map<String, dynamic> toJson() => {'type_id': typeId, 'type_name': typeName};
+
+  factory CmsCategory.fromJson(Map<String, dynamic> json) => CmsCategory(
+        typeId: (json['type_id'] ?? '').toString(),
+        typeName: (json['type_name'] ?? '').toString(),
+      );
 }
 
 class CmsIndex {
@@ -29,6 +36,31 @@ class CmsIndex {
 
   final List<CmsCategory> categories;
   final List<VodItem> videos;
+
+  /// 首页数据缓存：冷启动先拿它渲染，再后台刷新。
+  Map<String, dynamic> toJson() => {
+        'categories': categories.map((c) => c.toJson()).toList(growable: false),
+        'videos': videos.map((v) => v.toJson()).toList(growable: false),
+        'savedAt': DateTime.now().toIso8601String(),
+      };
+
+  factory CmsIndex.fromJson(Map<String, dynamic> json) {
+    final categories = <CmsCategory>[];
+    final rawCategories = json['categories'];
+    if (rawCategories is List) {
+      for (final item in rawCategories) {
+        if (item is Map) categories.add(CmsCategory.fromJson(Map<String, dynamic>.from(item)));
+      }
+    }
+    final videos = <VodItem>[];
+    final rawVideos = json['videos'];
+    if (rawVideos is List) {
+      for (final item in rawVideos) {
+        if (item is Map) videos.add(VodItem.fromJson(Map<String, dynamic>.from(item)));
+      }
+    }
+    return CmsIndex(categories: categories, videos: videos);
+  }
 }
 
 class VodPage {

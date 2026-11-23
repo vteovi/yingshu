@@ -1,11 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/file_export.dart';
 import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
 import '../models/source_health.dart';
@@ -320,8 +320,8 @@ class SourcesPage extends StatelessWidget {
     _snack(context, '已复制 ${app.sources.length} 个源的配置到剪贴板');
   }
 
-  /// 导出全部源：优先弹系统保存对话框写 JSON 文件；
-  /// 平台不支持保存位置时（比如部分安卓机型）退回到可复制的文本框。
+  /// 导出全部源：安卓走系统「另存为」，桌面走保存对话框；
+  /// 都不支持时退回到可复制的文本框。
   Future<void> _exportSources(BuildContext context, AppState app) async {
     if (app.sources.isEmpty) {
       _snack(context, '还没有订阅源可导出');
@@ -330,25 +330,22 @@ class SourcesPage extends StatelessWidget {
     final data = jsonEncode(app.sources.map((s) => s.toJson()).toList());
     final name = 'yingshu-sources-${DateTime.now().millisecondsSinceEpoch}.json';
 
-    String? savedPath;
+    String? saved;
+    var failed = false;
     try {
-      final location = await getSaveLocation(
-        suggestedName: name,
-        acceptedTypeGroups: const [
-          XTypeGroup(label: 'JSON 文件', extensions: <String>['json']),
-        ],
-      );
-      if (location != null) {
-        await File(location.path).writeAsString(data);
-        savedPath = location.path;
-      }
+      saved = await FileExport.saveText(fileName: name, content: data);
     } catch (_) {
-      savedPath = null;
+      failed = true;
     }
 
     if (!context.mounted) return;
-    if (savedPath != null) {
-      _snack(context, '已导出 ${app.sources.length} 个源到 $savedPath');
+    if (saved != null) {
+      _snack(context, '已导出 ${app.sources.length} 个源 · $saved');
+      return;
+    }
+    if (!failed) {
+      // 用户在系统选择器里点了取消
+      _snack(context, '已取消导出');
       return;
     }
     await _showExportFallback(context, app, data);

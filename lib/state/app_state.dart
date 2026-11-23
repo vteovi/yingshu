@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -149,6 +150,29 @@ class AppState extends ChangeNotifier {
   List<FavoriteItem> get favorites => List.unmodifiable(_favorites);
   List<HistoryItem> get history => List.unmodifiable(_history);
   List<String> get searchHistory => List.unmodifiable(_searchHistory);
+
+  /// 读上一次启动缓存下来的首页数据（同步、纯本地，几十毫秒内就能拿到）。
+  CmsIndex? cachedIndex(String sourceId) {
+    final raw = _store.readString(LocalStore.indexCacheKey(sourceId));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        final index = CmsIndex.fromJson(Map<String, dynamic>.from(decoded));
+        if (index.categories.isEmpty && index.videos.isEmpty) return null;
+        return index;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 网络刷新成功后回写首页缓存，下次冷启动直接用它出图。
+  Future<void> saveIndex(String sourceId, CmsIndex index) {
+    return _store.writeString(
+      LocalStore.indexCacheKey(sourceId),
+      jsonEncode(index.toJson()),
+    );
+  }
 
   // ---------------------------------------------------------------- 检测状态
   bool get checking => _checking;

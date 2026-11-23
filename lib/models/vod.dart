@@ -87,6 +87,26 @@ class VodItem {
     return parts.join(' · ');
   }
 
+  /// 落盘用的精简 JSON（只保留列表页需要的字段），键名与 [VodItem.fromJson] 对齐。
+  Map<String, dynamic> toJson() => {
+        'vod_id': vodId,
+        'vod_name': name,
+        'vod_pic': pic,
+        'vod_remarks': remarks,
+        'type_id': typeId,
+        'type_name': typeName,
+        'vod_year': year,
+        'vod_area': area,
+        'vod_lang': lang,
+        'vod_actor': actor,
+        'vod_director': director,
+        'vod_content': content,
+        'vod_play_from': playFrom,
+        'vod_play_url': playUrl,
+        'vod_score': score,
+        'vod_time': updatedAt,
+      };
+
   factory VodItem.fromJson(Map<String, dynamic> json) {
     return VodItem(
       vodId: _s(json['vod_id']),

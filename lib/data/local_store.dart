@@ -16,6 +16,9 @@ class LocalStore {
   static const String keySourceHealth = 'cms_source_health_v1';
   static const String keySearchHistory = 'cms_search_history_v1';
 
+  /// 首页数据缓存（每个源一份），冷启动先用它出图，再后台刷新。
+  static String indexCacheKey(String sourceId) => 'cms_index_cache_v1_$sourceId';
+
   List<Map<String, dynamic>> readList(String key) {
     final raw = _prefs.getString(key);
     if (raw == null || raw.isEmpty) return const <Map<String, dynamic>>[];

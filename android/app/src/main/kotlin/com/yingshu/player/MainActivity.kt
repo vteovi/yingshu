@@ -14,7 +14,14 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val externalChannelName = "com.yingshu.player/external_player"
     private val pipChannelName = "com.yingshu.player/pip"
+    private val filesChannelName = "com.yingshu.player/files"
     private var pipChannel: MethodChannel? = null
+    private var filesChannel: MethodChannel? = null
+
+    /** 系统「保存到文件」流程的挂起内容：等用户选完目录再写盘。 */
+    private var pendingText: String? = null
+    private var pendingResult: MethodChannel.Result? = null
+    private val exportRequestCode = 5001
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -49,6 +56,75 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+
+        // 导出文件：走系统的「另存为」界面（SAF），用户自己挑目录。
+        filesChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, filesChannelName)
+        filesChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "exportText" -> {
+                    val content = call.argument<String>("content")
+                    val fileName = call.argument<String>("fileName") ?: "export.json"
+                    val mime = call.argument<String>("mime") ?: "application/octet-stream"
+                    if (content == null) {
+                        result.error("bad_args", "content is empty", null)
+                    } else {
+                        startExport(fileName, mime, content, result)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun startExport(
+        fileName: String,
+        mime: String,
+        content: String,
+        result: MethodChannel.Result
+    ) {
+        val previous = pendingResult
+        pendingResult?.success(null)
+        pendingResult = result
+        pendingText = content
+        if (previous != null) return
+        try {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mime
+                putExtra(Intent.EXTRA_TITLE, fileName)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            startActivityForResult(intent, exportRequestCode)
+        } catch (e: Exception) {
+            pendingResult = null
+            pendingText = null
+            result.error("failed", e.message ?: "cannot open system file picker", null)
+        }
+    }
+
+    @Deprecated("用于兼容旧版 Activity 结果回调")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != exportRequestCode) return
+        val callback = pendingResult
+        val text = pendingText
+        pendingResult = null
+        pendingText = null
+        if (callback == null) return
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null || text == null) {
+            callback.success(null) // 用户取消
+            return
+        }
+        try {
+            contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                out.write(text.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+            callback.success(uri.toString())
+        } catch (e: Exception) {
+            callback.error("failed", e.message ?: "write failed", null)
         }
     }
 
