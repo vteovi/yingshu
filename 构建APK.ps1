@@ -124,10 +124,34 @@ if (Test-Path $JarSrc) {
 }
 
 # ---------------------------------------------------------------- 4. 版本号与参数
-$Version = (Select-String -Path (Join-Path $Root 'pubspec.yaml') -Pattern '^version:' |
-        Select-Object -First 1).Line -replace '^version:\s*', '' -replace '\+.*$', ''
-$Version = $Version.Trim()
-Write-Ok "版本：$Version"
+# pubspec.yaml 的 `version: X.Y.Z+B`：X.Y.Z 给用户看（versionName），B 给系统（versionCode）
+$VersionLine = (Select-String -Path (Join-Path $Root 'pubspec.yaml') -Pattern '^version:' |
+        Select-Object -First 1).Line -replace '^version:\s*', ''
+$Version = ($VersionLine -replace '\+.*$', '').Trim()
+$VersionCode = ($VersionLine -replace '^[^+]*\+?', '').Trim()
+if (-not $VersionCode) {
+    # 没写 +B 时按 主×10000 + 次×100 + 补丁 算一个单调递增的整数
+    $parts = @($Version.Split('.') | ForEach-Object { [int]($_ -replace '[^0-9]', '0') })
+    while ($parts.Count -lt 3) { $parts += 0 }
+    $VersionCode = $parts[0] * 10000 + $parts[1] * 100 + $parts[2]
+}
+if (-not $VersionCode) { Fail "pubspec.yaml 里的版本号格式不对：$VersionLine" }
+Write-Ok "版本：$Version（versionCode $VersionCode）"
+
+# Gradle 的 flutter.versionName / flutter.versionCode 来自 local.properties。
+# 直接调 gradlew 时 Flutter 工具不会来刷新这两个字段，旧值会让安装界面一直显示老版本，
+# 所以这里每次构建都按 pubspec 覆盖一遍。
+$LocalProps = Join-Path $Root 'android\local.properties'
+$lines = @()
+if (Test-Path $LocalProps) {
+    $lines = Get-Content $LocalProps | Where-Object { $_ -notmatch '^\s*flutter\.version(Name|Code)\s*=' }
+} else {
+    $lines = @("sdk.dir=$sdkEscaped", "flutter.sdk=$flutterEscaped")
+}
+$lines += "flutter.versionName=$Version"
+$lines += "flutter.versionCode=$VersionCode"
+[IO.File]::WriteAllLines($LocalProps, $lines, [System.Text.UTF8Encoding]::new($false))
+Write-Ok "local.properties 已写入 versionName=$Version / versionCode=$VersionCode"
 
 # ---------------------------------------------------------------- 5. pub get + 构建
 Write-Step '拉取依赖'
