@@ -58,13 +58,15 @@ class _RootShellState extends State<RootShell> {
         children: [
           // 侧边栏瘦身：收起的竖条 64（默认 72），展开状态 148（默认 180 太宽）
           SizedBox(
-            width: extended ? 148 : 64,
+            width: extended ? 180 : 72,
             child: NavigationRail(
               selectedIndex: _index,
               extended: extended,
               labelType: extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
-              minWidth: 64,
-              minExtendedWidth: 148,
+              // 宽度用 Material 默认值：之前收到 64 太窄，图标/文字的点击热区挤在一起，
+              // 点边缘常常只出动画不切换。72 / 180 是踩过坑后的稳妥尺寸。
+              minWidth: 72,
+              minExtendedWidth: 180,
               // 和手机端一致：不要选中胶囊，只靠图标/文字变色
               indicatorColor: Colors.transparent,
               selectedIconTheme: IconThemeData(size: 22, color: railBlue),
