@@ -249,7 +249,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       final selected = i == _index;
                       return ListTile(
                         selected: selected,
-                        selectedTileColor: const Color(0x229F7CFF),
+                        selectedTileColor: const Color(0x227FA6FF),
                         leading: selected
                             ? const Icon(Icons.play_arrow_rounded, size: 20)
                             : SizedBox(
@@ -582,7 +582,7 @@ class _PlayerPageState extends State<PlayerPage> {
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 2.4,
-                activeTrackColor: const Color(0xFF9F7CFF),
+                activeTrackColor: const Color(0xFF7FA6FF),
                 inactiveTrackColor: context.palette.textFaint,
                 thumbColor: context.palette.textPrimary,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),

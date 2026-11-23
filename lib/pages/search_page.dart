@@ -261,7 +261,7 @@ class _SearchResultTile extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF23232F),
+                    color: const Color(0xFF1A2436),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(

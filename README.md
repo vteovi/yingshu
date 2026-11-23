@@ -93,7 +93,7 @@ namespace = "com.yingshu.player"
 
 ```
 assets/branding/
-├── app_icon.png       # 1024×1024 图标母图（深空紫 + 播放三角 + 三节点聚合网络）
+├── app_icon.png       # 1024×1024 图标母图（深空蓝 + 播放三角 + 三节点聚合网络）
 └── app_icon_512.png   # 512 预览图
 tool/apply_branding.ps1 # 平台品牌信息与图标落地脚本
 ```

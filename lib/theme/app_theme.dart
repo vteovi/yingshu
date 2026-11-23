@@ -4,8 +4,8 @@ import 'app_palette.dart';
 
 /// 主题工厂：深色为 OLED 纯黑，浅色为白底。
 class AppTheme {
-  static const Color seed = Color(0xFF8B5CF6);
-  static const Color seedDark = Color(0xFF9F7CFF);
+  static const Color seed = Color(0xFF2F6BFF);
+  static const Color seedDark = Color(0xFF7FA6FF);
 
   static ThemeData dark() => _build(AppPalette.oled, Brightness.dark);
   static ThemeData light() => _build(AppPalette.light, Brightness.light);

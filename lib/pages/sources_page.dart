@@ -310,12 +310,12 @@ class _SourceCard extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0x339F7CFF),
+                              color: const Color(0x337FA6FF),
                               borderRadius: BorderRadius.circular(5),
                             ),
                             child: const Text(
                               '当前',
-                              style: TextStyle(fontSize: 10, color: Color(0xFFB9A2FF)),
+                              style: TextStyle(fontSize: 10, color: Color(0xFFAFC8FF)),
                             ),
                           ),
                         ],

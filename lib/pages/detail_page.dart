@@ -438,7 +438,7 @@ class _DetailPageState extends State<DetailPage> {
         padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
         decoration: BoxDecoration(
           color: context.palette.surfaceHigh,
-          border: Border(top: BorderSide(color: Color(0xFF23232E))),
+          border: Border(top: BorderSide(color: Color(0xFF1A2436))),
         ),
         child: Row(
           children: [

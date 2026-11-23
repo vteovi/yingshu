@@ -170,7 +170,7 @@ class _HistoryTile extends StatelessWidget {
                       value: item.progress,
                       minHeight: 3,
                       backgroundColor: context.palette.textFaint,
-                      color: const Color(0xFF9F7CFF),
+                      color: const Color(0xFF7FA6FF),
                     ),
                   ),
                   const SizedBox(height: 8),

@@ -26,8 +26,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
   static const AppPalette oled = AppPalette(
     background: Color(0xFF000000),
     surface: Color(0xFF000000),
-    surfaceHigh: Color(0xFF0C0C10),
-    border: Color(0xFF1A1A20),
+    surfaceHigh: Color(0xFF0B1220),
+    border: Color(0xFF1A2436),
     textPrimary: Color(0xFFFFFFFF),
     textSecondary: Color(0xB3FFFFFF),
     textFaint: Color(0x61FFFFFF),
@@ -35,13 +35,13 @@ class AppPalette extends ThemeExtension<AppPalette> {
 
   /// 浅色：白底深字。
   static const AppPalette light = AppPalette(
-    background: Color(0xFFF4F4F7),
+    background: Color(0xFFF3F6FC),
     surface: Color(0xFFFFFFFF),
-    surfaceHigh: Color(0xFFEFEFF4),
-    border: Color(0xFFDCDCE4),
-    textPrimary: Color(0xFF16161C),
-    textSecondary: Color(0xFF5A5A66),
-    textFaint: Color(0xFF9A9AA6),
+    surfaceHigh: Color(0xFFEAF0FB),
+    border: Color(0xFFD6E1F5),
+    textPrimary: Color(0xFF10182A),
+    textSecondary: Color(0xFF55607A),
+    textFaint: Color(0xFF97A2B8),
   );
 
   bool get isDark => background.computeLuminance() < 0.3;
