@@ -25,6 +25,29 @@ class SourceCheckSummary {
   final int total;
 }
 
+/// 海报大小：决定网格里一行放几张。
+///
+/// 列数不是写死的，而是按「可用宽度 ÷ 每张的目标宽度」算，
+/// 所以手机竖屏是 3/2/1 列，平板大屏会自动变成更多列。
+enum PosterSize {
+  small('small', '小'),
+  medium('medium', '中'),
+  large('large', '大');
+
+  const PosterSize(this.key, this.label);
+
+  final String key;
+  final String label;
+
+  static PosterSize parse(Object? raw) {
+    final value = raw?.toString();
+    for (final item in values) {
+      if (item.key == value) return item;
+    }
+    return PosterSize.medium;
+  }
+}
+
 /// 全局状态：订阅源、收藏、历史、设置。
 class AppState extends ChangeNotifier {
   AppState(this._store);
@@ -48,6 +71,8 @@ class AppState extends ChangeNotifier {
   bool _rememberProgress = true;
   bool _skipIntroAd = true;
   ThemeMode _themeMode = ThemeMode.system;
+  PosterSize _posterSize = PosterSize.medium;
+  bool _landscapeCard = false;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
@@ -55,6 +80,8 @@ class AppState extends ChangeNotifier {
   bool get rememberProgress => _rememberProgress;
   bool get skipIntroAd => _skipIntroAd;
   ThemeMode get themeMode => _themeMode;
+  PosterSize get posterSize => _posterSize;
+  bool get landscapeCard => _landscapeCard;
 
   List<CmsSource> get sources => List.unmodifiable(_sources);
   List<CmsSource> get enabledSources =>
@@ -116,6 +143,8 @@ class AppState extends ChangeNotifier {
         settings['rememberProgress'] is bool ? settings['rememberProgress'] as bool : true;
     _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : true;
     _themeMode = _parseThemeMode(settings['themeMode']);
+    _posterSize = PosterSize.parse(settings['posterSize']);
+    _landscapeCard = settings['landscapeCard'] is bool ? settings['landscapeCard'] as bool : false;
     _api.userAgent = _userAgent;
     _fetcher.userAgent = _userAgent;
 
@@ -498,6 +527,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPosterSize(PosterSize size) async {
+    if (_posterSize == size) return;
+    _posterSize = size;
+    await _persistSettings();
+    notifyListeners();
+  }
+
+  Future<void> setLandscapeCard(bool value) async {
+    if (_landscapeCard == value) return;
+    _landscapeCard = value;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   Future<void> _persistSettings() {
     return _store.writeMap(LocalStore.keySettings, {
       'userAgent': _userAgent,
@@ -505,6 +548,8 @@ class AppState extends ChangeNotifier {
       'rememberProgress': _rememberProgress,
       'skipIntroAd': _skipIntroAd,
       'themeMode': _themeMode.name,
+      'posterSize': _posterSize.key,
+      'landscapeCard': _landscapeCard,
     });
   }
 }

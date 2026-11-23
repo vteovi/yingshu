@@ -10,15 +10,59 @@ import 'state_views.dart';
 import 'vod_card.dart';
 import '../pages/detail_page.dart';
 
-int _crossAxisCount(double width) {
-  if (width >= 1100) return 7;
-  if (width >= 800) return 5;
-  if (width >= 600) return 4;
-  return 3;
-}
-
 const double _horizontalPadding = 16.0;
 const double _spacing = 12.0;
+
+/// 每张竖版海报的目标宽度（单位 dp），按海报大小分档。
+///
+/// 列数是「可用宽度 ÷ 目标宽度」取整，所以同一个档位在手机上列少、在平板上列多。
+double _targetTileWidth(PosterSize size) {
+  switch (size) {
+    case PosterSize.small:
+      return 104;
+    case PosterSize.medium:
+      return 158;
+    case PosterSize.large:
+      return 232;
+  }
+}
+
+/// 竖版网格：2:3 海报，列数随宽度与海报大小自适应。
+SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
+  final available = maxWidth - _horizontalPadding * 2;
+  final target = _targetTileWidth(size);
+  final columns = (available / target).floor().clamp(1, 8);
+  final itemWidth = (available - _spacing * (columns - 1)) / columns;
+  final itemHeight = itemWidth * 1.5 + 44;
+  return SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: columns,
+    mainAxisSpacing: 16,
+    crossAxisSpacing: _spacing,
+    mainAxisExtent: itemHeight,
+  );
+}
+
+/// 横版网格：16:10 封面 + 下方两行文字，单卡上限 420 宽（超宽就多排一列）。
+SliverGridDelegate _landscapeDelegate(double maxWidth, PosterSize size) {
+  const double maxExtent = 420;
+  const double caption = 50;
+  final available = maxWidth - _horizontalPadding * 2;
+  final columns = (available / maxExtent).ceil().clamp(1, 6);
+  final tileWidth = available / columns;
+  final coverHeight = tileWidth / (16 / 10);
+  final cardHeight = coverHeight + caption;
+  return SliverGridDelegateWithMaxCrossAxisExtent(
+    maxCrossAxisExtent: tileWidth,
+    childAspectRatio: tileWidth / cardHeight,
+    mainAxisSpacing: 16,
+    crossAxisSpacing: _spacing,
+  );
+}
+
+/// 按当前设置选网格代理。
+SliverGridDelegate _delegateFor(double maxWidth, PosterSize size, bool landscape) {
+  return landscape ? _landscapeDelegate(maxWidth, size) : _portraitDelegate(maxWidth, size);
+}
 
 /// 首屏固定列表：首页「推荐」用。
 class VodGridView extends StatelessWidget {
@@ -37,14 +81,13 @@ class VodGridView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 在 build 期取一次设置：LayoutBuilder 里再读 Provider 会触发布局期注册依赖的断言
+    final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
+    final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+
     final content = LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = _crossAxisCount(constraints.maxWidth);
-        final itemWidth = (constraints.maxWidth -
-                _horizontalPadding * 2 -
-                _spacing * (crossAxisCount - 1)) /
-            crossAxisCount;
-        final itemHeight = itemWidth * 1.5 + 44;
+        final delegate = _delegateFor(constraints.maxWidth, posterSize, landscape);
 
         return CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -52,18 +95,14 @@ class VodGridView extends StatelessWidget {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(_horizontalPadding, 10, _horizontalPadding, 4),
               sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: _spacing,
-                  mainAxisExtent: itemHeight,
-                ),
+                gridDelegate: delegate,
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final vod = videos[i];
                     return VodCard(
                       vod: vod,
                       apiBase: source.api,
+                      landscape: landscape,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => DetailPage(
@@ -194,6 +233,9 @@ class _VodPagedGridState extends State<VodPagedGrid> {
 
   @override
   Widget build(BuildContext context) {
+    final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
+    final landscape = context.select<AppState, bool>((s) => s.landscapeCard);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         if (_items.isEmpty) {
@@ -204,12 +246,7 @@ class _VodPagedGridState extends State<VodPagedGrid> {
           return const EmptyView(title: '这个分类还没有内容', icon: Icons.inbox_outlined);
         }
 
-        final crossAxisCount = _crossAxisCount(constraints.maxWidth);
-        final itemWidth = (constraints.maxWidth -
-                _horizontalPadding * 2 -
-                _spacing * (crossAxisCount - 1)) /
-            crossAxisCount;
-        final itemHeight = itemWidth * 1.5 + 44;
+        final delegate = _delegateFor(constraints.maxWidth, posterSize, landscape);
 
         return CustomScrollView(
           controller: _controller,
@@ -217,18 +254,14 @@ class _VodPagedGridState extends State<VodPagedGrid> {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(_horizontalPadding, 12, _horizontalPadding, 8),
               sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: _spacing,
-                  mainAxisExtent: itemHeight,
-                ),
+                gridDelegate: delegate,
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final vod = _items[i];
                     return VodCard(
                       vod: vod,
                       apiBase: widget.source.api,
+                      landscape: landscape,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => DetailPage(

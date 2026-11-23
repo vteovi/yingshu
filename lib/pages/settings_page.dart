@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
 import '../state/app_state.dart';
-import '../theme/app_theme.dart';
 import 'sources_page.dart';
 import '../theme/app_palette.dart';
 
@@ -79,6 +78,50 @@ class SettingsPage extends StatelessWidget {
                 current: app.themeMode,
                 onTap: () => app.setThemeMode(ThemeMode.dark),
               ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.photo_size_select_large_rounded, size: 24),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('海报大小', style: TextStyle(fontSize: 15)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '手机上一行 3 / 2 / 1 张，平板按屏幕宽度自动加列',
+                            style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SegmentedButton<PosterSize>(
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                      segments: [
+                        for (final size in PosterSize.values)
+                          ButtonSegment<PosterSize>(value: size, label: Text(size.label)),
+                      ],
+                      selected: {app.posterSize},
+                      onSelectionChanged: (value) => app.setPosterSize(value.first),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
+                secondary: const Icon(Icons.view_agenda_outlined),
+                title: const Text('横向卡片模式'),
+                subtitle: Text(
+                  '海报改横版（图上文下）：手机竖屏一行一张，平板自适应多列',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                value: app.landscapeCard,
+                onChanged: (value) => app.setLandscapeCard(value),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -100,8 +143,7 @@ class SettingsPage extends StatelessWidget {
                 secondary: const Icon(Icons.content_cut_rounded),
                 title: const Text('自动跳过片头广告'),
                 subtitle: Text(
-                  '识别 m3u8 里拼在正片前面的广告段并直接跳过；'
-                  '中途断流也会自动续播',
+                  '识别 m3u8 里拼在正片前面的广告段并直接跳过（ExoPlayer 内核，拖动进度可靠）',
                   style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
                 ),
                 value: app.skipIntroAd,
@@ -175,7 +217,7 @@ class SettingsPage extends StatelessWidget {
                 leading: Icon(Icons.movie_outlined),
                 title: Text('播放内核'),
                 trailing: Text(
-                  'media_kit / libmpv',
+                  'video_player / ExoPlayer',
                   style: TextStyle(fontSize: 12, color: context.palette.textFaint),
                 ),
               ),

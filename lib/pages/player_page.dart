@@ -2,16 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 
+import '../core/constants.dart';
 import '../core/hls_probe.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
 import '../theme/app_palette.dart';
 
-/// 单页播放器：media_kit(libmpv) 内核，支持 HLS / 直链 / 倍速 / 连播 / 断点续播。
+/// 单页播放器：video_player（Android 侧 ExoPlayer），支持 HLS / 直链 / 倍速 / 连播 / 断点续播。
+///
+/// 换掉 libmpv 的原因：m3u8 里有广告段拼接（`#EXT-X-DISCONTINUITY`）时，
+/// libmpv 往往播完广告段就停住、进度条也拖不动；ExoPlayer 对 HLS 的分段与
+/// 拖动支持稳定得多，和 ZY-Player 用的是同一套内核。
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
@@ -41,14 +45,8 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  late final Player _player;
-  late final VideoController _videoController;
-
-  final ValueNotifier<Duration> _position = ValueNotifier(Duration.zero);
-  final ValueNotifier<Duration> _duration = ValueNotifier(Duration.zero);
-  final ValueNotifier<bool> _playing = ValueNotifier(true);
-  final ValueNotifier<bool> _buffering = ValueNotifier(false);
-  final List<StreamSubscription> _subscriptions = [];
+  VideoPlayerController? _controller;
+  VoidCallback? _listener;
 
   AppState? _state;
   Timer? _hideTimer;
@@ -60,21 +58,17 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _fullscreen = false;
   bool _dragging = false;
   double _dragValue = 0;
+  bool _buffering = false;
+  bool _completedOnce = false;
   String? _error;
 
-  /// 中途被误判为播完（片头广告播完就停）时的自动续播次数。
-  int _resumeAttempts = 0;
-  int _resumeEpisodeIndex = -1;
-  bool _introChecked = false;
-  bool _seekingIntro = false;
+  /// 换集 / 重开后自增，用来丢弃上一个控制器残留的异步回调。
+  int _session = 0;
 
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex.clamp(0, widget.episodes.length - 1).toInt();
-    _player = Player();
-    _videoController = VideoController(_player);
-    _wireStreams();
     _openCurrent(seekTo: widget.initialPosition);
     _scheduleHide();
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) => _saveProgress());
@@ -86,76 +80,124 @@ class _PlayerPageState extends State<PlayerPage> {
     _state ??= context.read<AppState>();
   }
 
-  void _wireStreams() {
-    _subscriptions.add(_player.stream.position.listen((value) => _position.value = value));
-    _subscriptions.add(_player.stream.duration.listen((value) => _duration.value = value));
-    _subscriptions.add(_player.stream.playing.listen((value) => _playing.value = value));
-    _subscriptions.add(_player.stream.buffering.listen((value) => _buffering.value = value));
-    _subscriptions.add(_player.stream.error.listen((value) {
-      if (!mounted) return;
-      setState(() => _error = value);
-    }));
-    _subscriptions.add(_player.stream.completed.listen((value) {
-      if (!value) return;
-      _onCompleted();
-    }));
-  }
+  VideoPlayerValue get _value =>
+      _controller?.value ?? const VideoPlayerValue(duration: Duration.zero);
+
+  Duration get _position => _value.position;
+  Duration get _duration => _value.duration;
+  bool get _playing => _value.isPlaying;
+
+  // ------------------------------------------------------------------ 播放
 
   Future<void> _openCurrent({Duration? seekTo}) async {
+    final session = ++_session;
     final episode = widget.episodes[_index];
-    if (_error != null && mounted) setState(() => _error = null);
-    _position.value = Duration.zero;
-    _duration.value = Duration.zero;
-    _introChecked = false;
-    _resumeAttempts = 0;
-    _resumeEpisodeIndex = _index;
-    try {
-      await _player.open(Media(episode.url), play: true);
-      await _player.setRate(_rate);
-      if (seekTo != null && seekTo > const Duration(seconds: 3)) {
-        await _player.seek(seekTo);
+    await _releaseController();
+    if (!mounted) return;
+
+    setState(() {
+      _error = null;
+      _completedOnce = false;
+      _buffering = true;
+    });
+
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(episode.url),
+      httpHeaders: {
+        'User-Agent': kPlayerUserAgent,
+      },
+    );
+    _controller = controller;
+    void listener() {
+      if (!mounted || session != _session) return;
+      final value = controller.value;
+      if (value.isBuffering != _buffering) {
+        setState(() => _buffering = value.isBuffering);
       } else {
-        // 有些源的 m3u8 把广告拼在正片前面，直接跳过这一段
-        unawaited(_skipIntroAd(episode.url));
+        setState(() {});
+      }
+      if (value.isCompleted && !_completedOnce) {
+        _completedOnce = true;
+        _onCompleted();
+      }
+    }
+
+    _listener = listener;
+    controller.addListener(listener);
+
+    try {
+      await controller.initialize();
+      if (!mounted || session != _session) return;
+      await controller.setPlaybackSpeed(_rate);
+      if (seekTo != null && seekTo > const Duration(seconds: 3)) {
+        await controller.seekTo(seekTo);
+      }
+      await controller.play();
+      if (!mounted || session != _session) return;
+      setState(() => _buffering = false);
+
+      if (seekTo == null) {
+        // 有些源的 m3u8 把广告拼在正片前面，探测到就跳过去
+        unawaited(_skipIntroAd(episode.url, session));
       }
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
+      if (!mounted || session != _session) return;
+      setState(() {
+        _error = _describe(e);
+        _buffering = false;
+      });
     }
   }
 
+  Future<void> _releaseController() async {
+    final old = _controller;
+    final listener = _listener;
+    _controller = null;
+    _listener = null;
+    if (old != null) {
+      if (listener != null) old.removeListener(listener);
+      try {
+        await old.dispose();
+      } catch (_) {}
+    }
+  }
+
+  String _describe(Object error) {
+    final text = error.toString();
+    if (text.contains('403')) return '片源地址拒绝了请求（403），可能该源已失效或需要特定 UA';
+    if (text.contains('404')) return '片源地址不存在（404）';
+    return text.replaceFirst('Exception: ', '');
+  }
+
   /// 探测并跳过片头广告（只处理 `#EXT-X-DISCONTINUITY` 拼接的广告段）。
-  Future<void> _skipIntroAd(String url) async {
+  Future<void> _skipIntroAd(String url, int session) async {
     final state = _state;
-    if (state == null || !state.skipIntroAd || _introChecked) return;
-    _introChecked = true;
+    if (state == null || !state.skipIntroAd) return;
     HlsIntro? intro;
     try {
-      intro = await probeHlsIntro(url, userAgent: state.userAgent);
+      intro = await probeHlsIntro(url, userAgent: kPlayerUserAgent);
     } catch (_) {
       return;
     }
     if (intro == null || !intro.worthSkipping) return;
-    if (!mounted || _resumeEpisodeIndex != _index) return;
+    if (!mounted || session != _session) return;
 
     // 用户已经自己拖过进度，就别再插手了
-    final current = _player.state.position;
+    final current = _position;
     if (current > intro.adDuration + const Duration(seconds: 15)) return;
 
-    _seekingIntro = true;
     try {
-      await _player.seek(intro.adDuration + const Duration(milliseconds: 800));
+      await _controller?.seekTo(intro.adDuration + const Duration(milliseconds: 800));
     } catch (_) {
-      // 跳不过去就让广告播完，后面还有中途续播兜底
-    } finally {
-      _seekingIntro = false;
+      return;
     }
-    if (mounted) {
+    if (mounted && session == _session) {
       _toast('已跳过片头广告 ${intro.adDuration.inSeconds} 秒');
     }
   }
 
   void _toast(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -175,20 +217,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _onCompleted() {
-    if (!mounted || _seekingIntro) return;
-    final position = _player.state.position;
-    final duration = _player.state.duration;
-    // 广告段拼接、切片断流时会「提前播完」：位置离总时长还很远就补一次续播，
-    // 而不是直接当成一集结束跳到下一集。
-    final midStream = _resumeEpisodeIndex == _index &&
-        position > const Duration(seconds: 5) &&
-        (duration <= Duration.zero || position < duration - const Duration(minutes: 1));
-    if (midStream && _resumeAttempts < 2) {
-      _resumeAttempts++;
-      unawaited(_resumeAt(position + const Duration(seconds: 2)));
-      return;
-    }
-
+    if (!mounted) return;
     final autoNext = _state?.autoPlayNext ?? true;
     if (autoNext && _index < widget.episodes.length - 1) {
       _switchEpisode(_index + 1);
@@ -197,19 +226,11 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  Future<void> _resumeAt(Duration target) async {
-    try {
-      await _player.seek(target);
-      await _player.play();
-      if (mounted) _toast('播放中断，已自动从 ${_formatDuration(target)} 继续');
-    } catch (_) {
-      if (mounted) _toast('播放中断，续播失败');
-    }
-  }
-
   Future<void> _saveProgress() async {
     final state = _state;
     if (state == null || !state.rememberProgress) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
     final episode = widget.episodes[_index];
     await state.saveProgress(
       sourceId: widget.sourceId,
@@ -221,10 +242,12 @@ class _PlayerPageState extends State<PlayerPage> {
       episodeName: episode.name,
       episodeUrl: episode.url,
       episodeIndex: _index,
-      position: _player.state.position,
-      duration: _player.state.duration,
+      position: _position,
+      duration: _duration,
     );
   }
+
+  // ------------------------------------------------------------------ 控件
 
   void _scheduleHide() {
     _hideTimer?.cancel();
@@ -250,11 +273,36 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _seekBy(Duration delta) async {
-    final max = _duration.value;
-    var target = _position.value + delta;
+    final controller = _controller;
+    if (controller == null) return;
+    final total = _duration;
+    var target = _position + delta;
     if (target < Duration.zero) target = Duration.zero;
-    if (max > Duration.zero && target > max) target = max;
-    await _player.seek(target);
+    if (total > Duration.zero && target > total) target = total;
+    await controller.seekTo(target);
+    _showControls();
+  }
+
+  Future<void> _seekTo(Duration target) async {
+    final controller = _controller;
+    if (controller == null) return;
+    var value = target;
+    if (value < Duration.zero) value = Duration.zero;
+    if (_duration > Duration.zero && value > _duration) value = _duration;
+    await controller.seekTo(value);
+  }
+
+  Future<void> _togglePlay() async {
+    final controller = _controller;
+    if (controller == null) return;
+    if (controller.value.isPlaying) {
+      await controller.pause();
+    } else {
+      if (controller.value.isCompleted) {
+        await controller.seekTo(Duration.zero);
+      }
+      await controller.play();
+    }
     _showControls();
   }
 
@@ -369,18 +417,14 @@ class _PlayerPageState extends State<PlayerPage> {
     _saveProgress();
     _hideTimer?.cancel();
     _saveTimer?.cancel();
-    for (final subscription in _subscriptions) {
-      subscription.cancel();
-    }
-    _player.dispose();
-    _position.dispose();
-    _duration.dispose();
-    _playing.dispose();
-    _buffering.dispose();
+    _session++;
+    _releaseController();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
+
+  // ------------------------------------------------------------------ 画面
 
   @override
   Widget build(BuildContext context) {
@@ -389,11 +433,7 @@ class _PlayerPageState extends State<PlayerPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Video(
-            controller: _videoController,
-            controls: NoVideoControls,
-            fit: BoxFit.contain,
-          ),
+          _buildVideo(),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: _toggleControls,
@@ -403,19 +443,17 @@ class _PlayerPageState extends State<PlayerPage> {
               _seekBy(Duration(seconds: isLeft ? -10 : 10));
             },
           ),
-          ValueListenableBuilder<bool>(
-            valueListenable: _buffering,
-            builder: (context, buffering, child) {
-              if (!buffering) return const SizedBox.shrink();
-              return Center(
-                child: SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(strokeWidth: 2.4, color: context.palette.textSecondary),
+          if (_buffering && _error == null)
+            Center(
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  color: context.palette.textSecondary,
                 ),
-              );
-            },
-          ),
+              ),
+            ),
           if (_error != null) _buildErrorOverlay(),
           AnimatedOpacity(
             opacity: _controlsVisible ? 1 : 0,
@@ -426,6 +464,19 @@ class _PlayerPageState extends State<PlayerPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVideo() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const ColoredBox(color: Colors.black);
+    }
+    return Center(
+      child: AspectRatio(
+        aspectRatio: controller.value.aspectRatio <= 0 ? 16 / 9 : controller.value.aspectRatio,
+        child: VideoPlayer(controller),
       ),
     );
   }
@@ -450,12 +501,6 @@ class _PlayerPageState extends State<PlayerPage> {
                   textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '提示：只支持 m3u8 / mp4 等直链，若返回的是网页地址需要在源侧解析。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                 ),
                 const SizedBox(height: 18),
                 Row(
@@ -506,29 +551,24 @@ class _PlayerPageState extends State<PlayerPage> {
                       icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
                     ),
                     Expanded(
-                      child: ValueListenableBuilder<Duration>(
-                        valueListenable: _position,
-                        builder: (context, position, child) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                widget.vodName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${widget.episodes[_index].name} · ${widget.groupName}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
-                              ),
-                            ],
-                          );
-                        },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            widget.vodName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${widget.episodes[_index].name} · ${widget.groupName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
+                          ),
+                        ],
                       ),
                     ),
                     IconButton(
@@ -571,25 +611,13 @@ class _PlayerPageState extends State<PlayerPage> {
                           color: context.palette.textPrimary,
                           disabledColor: context.palette.textFaint,
                         ),
-                        ValueListenableBuilder<bool>(
-                          valueListenable: _playing,
-                          builder: (context, playing, child) {
-                            return IconButton(
-                              iconSize: 34,
-                              color: context.palette.textPrimary,
-                              onPressed: () {
-                                if (playing) {
-                                  _player.pause();
-                                } else {
-                                  _player.play();
-                                }
-                                _showControls();
-                              },
-                              icon: Icon(
-                                playing ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
-                              ),
-                            );
-                          },
+                        IconButton(
+                          iconSize: 34,
+                          color: context.palette.textPrimary,
+                          onPressed: _togglePlay,
+                          icon: Icon(
+                            _playing ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                          ),
                         ),
                         IconButton(
                           onPressed: _index < widget.episodes.length - 1
@@ -605,7 +633,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           initialValue: _rate,
                           onSelected: (value) async {
                             setState(() => _rate = value);
-                            await _player.setRate(value);
+                            await _controller?.setPlaybackSpeed(value);
                             _showControls();
                           },
                           itemBuilder: (context) => const [
@@ -645,61 +673,59 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Widget _buildProgress() {
-    return ValueListenableBuilder<Duration>(
-      valueListenable: _position,
-      builder: (context, position, child) {
-        final duration = _duration.value;
-        final maxMs = duration.inMilliseconds > 0 ? duration.inMilliseconds : 1;
-        final currentMs = _dragging ? _dragValue : position.inMilliseconds.toDouble();
-        final value = currentMs.clamp(0.0, maxMs.toDouble()).toDouble();
+    final duration = _duration;
+    final maxMs = duration.inMilliseconds > 0 ? duration.inMilliseconds : 1;
+    final currentMs = _dragging ? _dragValue : _position.inMilliseconds.toDouble();
+    final value = currentMs.clamp(0.0, maxMs.toDouble()).toDouble();
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 2.4,
-                activeTrackColor: const Color(0xFF7FA6FF),
-                inactiveTrackColor: context.palette.textFaint,
-                thumbColor: context.palette.textPrimary,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 2.4,
+            activeTrackColor: const Color(0xFF7FA6FF),
+            inactiveTrackColor: context.palette.textFaint,
+            thumbColor: context.palette.textPrimary,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+          ),
+          child: Slider(
+            min: 0,
+            max: maxMs.toDouble(),
+            value: value,
+            onChangeStart: (v) {
+              _hideTimer?.cancel();
+              setState(() {
+                _dragging = true;
+                _dragValue = v;
+              });
+            },
+            onChanged: (v) => setState(() => _dragValue = v),
+            onChangeEnd: (v) async {
+              setState(() => _dragging = false);
+              await _seekTo(Duration(milliseconds: v.round()));
+              _showControls();
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              Text(
+                _formatDuration(_dragging ? Duration(milliseconds: _dragValue.round()) : _position),
+                style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
               ),
-              child: Slider(
-                min: 0,
-                max: maxMs.toDouble(),
-                value: value,
-                onChangeStart: (v) => setState(() {
-                  _dragging = true;
-                  _dragValue = v;
-                }),
-                onChanged: (v) => setState(() => _dragValue = v),
-                onChangeEnd: (v) async {
-                  setState(() => _dragging = false);
-                  await _player.seek(Duration(milliseconds: v.round()));
-                  _showControls();
-                },
+              const Spacer(),
+              Text(
+                duration.inMilliseconds > 0 ? _formatDuration(duration) : '--:--',
+                style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                children: [
-                  Text(
-                    _formatDuration(_dragging ? Duration(milliseconds: _dragValue.round()) : position),
-                    style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
-                  ),
-                  const Spacer(),
-                  Text(
-                    duration.inMilliseconds > 0 ? _formatDuration(duration) : '--:--',
-                    style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

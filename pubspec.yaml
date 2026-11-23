@@ -1,7 +1,7 @@
 name: yingshu
 description: 影枢 CineHub —— 基于苹果CMS v10 采集接口的跨端流媒体播放器（订阅源聚合 / 点播 / 进度记忆）
 publish_to: 'none'
-version: 0.7.0+9
+version: 0.8.0+800
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -18,6 +18,14 @@ dependencies:
   media_kit_libs_video: ^1.0.5
   cached_network_image: ^3.3.1
   file_selector: ^1.1.0
+  video_player: ^2.9.5
+
+# 播放内核：video_player（Android 侧 ExoPlayer，原生支持 m3u8 / HLS，拖动进度可靠）
+# Android 用本地修正版 video_player_android：修了 SDK<29 时竖屏视频宽高未交换导致画面被拉伸的问题，
+# 以及部分机型 H.264 High Profile 硬解失败时没有回退软解的问题。
+dependency_overrides:
+  video_player_android:
+    path: third_party/video_player_android
 
 dev_dependencies:
   flutter_test:

@@ -5,7 +5,7 @@ import '../core/image_util.dart';
 import '../models/vod.dart';
 import '../theme/app_palette.dart';
 
-/// 海报卡片：2:3 封面 + 备注角标 + 片名。
+/// 海报卡片：默认 2:3 竖版封面；[landscape] 打开时改成横版 16:10 封面（图上文下）。
 class VodCard extends StatelessWidget {
   const VodCard({
     super.key,
@@ -15,6 +15,7 @@ class VodCard extends StatelessWidget {
     this.footer,
     this.showRemarks = true,
     this.apiBase,
+    this.landscape = false,
   });
 
   final VodItem vod;
@@ -27,6 +28,9 @@ class VodCard extends StatelessWidget {
 
   /// 当前订阅源的接口地址，用于补全相对海报地址与生成 Referer 请求头。
   final String? apiBase;
+
+  /// 横版卡片：封面按 16:10 展示，文字压在下面两行。
+  final bool landscape;
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +82,7 @@ class VodCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             vod.name,
-            maxLines: 2,
+            maxLines: landscape ? 1 : 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,
@@ -95,6 +99,16 @@ class VodCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11, color: theme.colorScheme.secondary),
+              ),
+            )
+          else if (landscape && vod.remarks.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(
+                vod.remarks,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: context.palette.textFaint),
               ),
             ),
         ],
