@@ -158,11 +158,16 @@ function Invoke-Build {
         $buildArgs += '-Ptarget-platform=android-arm,android-arm64,android-x64'
     }
     Push-Location (Join-Path $Root 'android')
+    # gradlew 会把进度/提示写到 stderr（例如 “Flutter assets will be downloaded from ...”），
+    # 在 ErrorActionPreference=Stop 下会被当成终止性错误、把构建中途掐断，所以这里临时放宽。
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         # Out-Host 让日志直接打到屏幕，不混进函数返回值
         & $Gradlew @buildArgs 2>&1 | Out-Host
         $script:BuildExitCode = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $prevEap
         Pop-Location
     }
 }
@@ -171,8 +176,14 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 Invoke-Build
 if ($script:BuildExitCode -ne 0) {
     Write-Warn2 '首次构建失败，清理 build 缓存后重试一次（常见于工程搬家后 Kotlin 增量缓存损坏）'
-    & $FlutterBat clean | Out-Host
-    & $FlutterBat pub get | Out-Host
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $FlutterBat clean | Out-Host
+        & $FlutterBat pub get | Out-Host
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
     # clean 会删掉预置的 libmpv jar，这里补回去
     if (Test-Path $JarSrc) {
         New-Item -ItemType Directory -Force -Path $JarDir | Out-Null
@@ -223,13 +234,20 @@ if (-not $NoSign) {
         $abi = 'universal'
         if ($apk.Name -match 'app-(.+)-release\.apk') { $abi = $Matches[1] }
         $target = Join-Path $DistDir "yingshu-$Version-$abi.apk"
-        & $Apksigner sign --ks $Keystore --ks-type PKCS12 `
-            --ks-pass "pass:$StorePass" --key-pass "pass:$StorePass" `
-            --ks-key-alias $Alias --out $target $apk.FullName | Out-Null
-        if ($LASTEXITCODE -ne 0) { Fail "签名失败：$($apk.Name)" }
-        & $Apksigner verify --print-certs $target 2>&1 | Select-String 'certificate DN' | ForEach-Object {
-            Write-Ok "已签名 $abi · $($_.Line.Trim())"
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $Apksigner sign --ks $Keystore --ks-type PKCS12 `
+                --ks-pass "pass:$StorePass" --key-pass "pass:$StorePass" `
+                --ks-key-alias $Alias --out $target $apk.FullName 2>&1 | Out-Null
+            $signExit = $LASTEXITCODE
+            & $Apksigner verify --print-certs $target 2>&1 | Select-String 'certificate DN' | ForEach-Object {
+                Write-Ok "已签名 $abi · $($_.Line.Trim())"
+            }
+        } finally {
+            $ErrorActionPreference = $prevEap
         }
+        if ($signExit -ne 0) { Fail "签名失败：$($apk.Name)" }
         $Signed += [pscustomobject]@{ Abi = $abi; Path = $target }
     }
 }

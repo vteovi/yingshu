@@ -37,3 +37,6 @@ windows/flutter/ephemeral/
 
 dist/
 build-log.txt
+
+build-*.log
+build-*.err
