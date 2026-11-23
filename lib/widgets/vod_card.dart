@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../core/image_util.dart';
 import '../models/vod.dart';
 import '../theme/app_palette.dart';
 
@@ -13,6 +14,7 @@ class VodCard extends StatelessWidget {
     this.onLongPress,
     this.footer,
     this.showRemarks = true,
+    this.apiBase,
   });
 
   final VodItem vod;
@@ -22,6 +24,9 @@ class VodCard extends StatelessWidget {
   /// 卡片底部补充信息（例如搜索结果的来源名）。
   final String? footer;
   final bool showRemarks;
+
+  /// 当前订阅源的接口地址，用于补全相对海报地址与生成 Referer 请求头。
+  final String? apiBase;
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +44,7 @@ class VodCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _Poster(pic: vod.pic, name: vod.name),
+                  _Poster(pic: vod.pic, name: vod.name, apiBase: apiBase),
                   if (showRemarks && vod.remarks.isNotEmpty)
                     Positioned(
                       left: 0,
@@ -99,10 +104,11 @@ class VodCard extends StatelessWidget {
 }
 
 class _Poster extends StatelessWidget {
-  const _Poster({required this.pic, required this.name});
+  const _Poster({required this.pic, required this.name, this.apiBase});
 
   final String pic;
   final String name;
+  final String? apiBase;
 
   @override
   Widget build(BuildContext context) {
@@ -115,9 +121,11 @@ class _Poster extends StatelessWidget {
       ),
     );
 
-    if (pic.isEmpty) return placeholder;
+    final url = normalizeImageUrl(pic, api: apiBase);
+    if (url.isEmpty) return placeholder;
     return CachedNetworkImage(
-      imageUrl: pic,
+      imageUrl: url,
+      httpHeaders: imageHeadersFor(apiBase),
       fit: BoxFit.cover,
       fadeInDuration: const Duration(milliseconds: 200),
       placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),

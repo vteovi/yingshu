@@ -2,13 +2,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_util.dart';
 import '../data/cms_api.dart';
 import '../models/cms_source.dart';
 import '../models/episode.dart';
 import '../models/media_record.dart';
 import '../models/vod.dart';
 import '../state/app_state.dart';
-import '../theme/app_theme.dart';
 import '../widgets/state_views.dart';
 import 'player_page.dart';
 import '../theme/app_palette.dart';
@@ -190,7 +190,10 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Widget _buildHeader(BuildContext context, VodItem vod) {
-    final pic = vod.pic.isNotEmpty ? vod.pic : widget.initialPic;
+    final pic = normalizeImageUrl(
+      vod.pic.isNotEmpty ? vod.pic : widget.initialPic,
+      api: widget.source.api,
+    );
     return SizedBox(
       height: 320,
       child: Stack(
@@ -199,6 +202,7 @@ class _DetailPageState extends State<DetailPage> {
           if (pic.isNotEmpty)
             CachedNetworkImage(
               imageUrl: pic,
+              httpHeaders: imageHeadersFor(widget.source.api),
               fit: BoxFit.cover,
               placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
               errorWidget: (_, __, ___) => ColoredBox(color: context.palette.surfaceHigh),

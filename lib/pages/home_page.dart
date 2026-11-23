@@ -4,14 +4,12 @@ import 'package:provider/provider.dart';
 import '../data/cms_api.dart';
 import '../models/cms_source.dart';
 import '../state/app_state.dart';
-import '../widgets/state_views.dart';
+import '../theme/app_palette.dart';
 import '../widgets/brand_mark.dart';
-import '../widgets/vod_card.dart';
-import 'category_page.dart';
-import 'detail_page.dart';
+import '../widgets/state_views.dart';
+import '../widgets/vod_grid.dart';
 import 'search_page.dart';
 import 'sources_page.dart';
-import '../theme/app_palette.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -144,115 +142,14 @@ class _HomePageState extends State<HomePage> {
                     onAction: _reload,
                   );
                 }
-                return _buildContent(context, source, index);
+                return _HomeTabs(
+                  key: ValueKey('${source.id}_${index.categories.length}'),
+                  source: source,
+                  index: index,
+                  onRefresh: _refresh,
+                );
               },
             ),
-    );
-  }
-
-  Widget _buildContent(BuildContext context, CmsSource source, CmsIndex index) {
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final crossAxisCount = width >= 1100
-              ? 7
-              : width >= 800
-                  ? 5
-                  : width >= 600
-                      ? 4
-                      : 3;
-          const horizontalPadding = 16.0;
-          const spacing = 12.0;
-          final itemWidth = (width -
-                  horizontalPadding * 2 -
-                  spacing * (crossAxisCount - 1)) /
-              crossAxisCount;
-          final itemHeight = itemWidth * 1.5 + 44;
-
-          return CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              if (index.categories.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 46,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: horizontalPadding),
-                      itemCount: index.categories.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final category = index.categories[i];
-                        return Center(
-                          child: ActionChip(
-                            label: Text(category.typeName),
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => CategoryPage(
-                                    source: source,
-                                    category: category,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  horizontalPadding,
-                  8,
-                  horizontalPadding,
-                  4,
-                ),
-                sliver: SliverGrid(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: spacing,
-                    mainAxisExtent: itemHeight,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) {
-                      final vod = index.videos[i];
-                      return VodCard(
-                        vod: vod,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => DetailPage(
-                              source: source,
-                              vodId: vod.vodId,
-                              initialName: vod.name,
-                              initialPic: vod.pic,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                    childCount: index.videos.length,
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  child: Text(
-                    '最近更新 ${index.videos.length} 部 · 下拉刷新',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
     );
   }
 
@@ -264,6 +161,118 @@ class _HomePageState extends State<HomePage> {
 String _describeError(dynamic error) {
   if (error is CmsException) return error.message;
   return '加载失败：$error';
+}
+
+/// 首页标签：推荐 + 各分类。标签之间可以左右滑动切换，点击标签也只切页、不再跳新页面。
+class _HomeTabs extends StatefulWidget {
+  const _HomeTabs({
+    super.key,
+    required this.source,
+    required this.index,
+    required this.onRefresh,
+  });
+
+  final CmsSource source;
+  final CmsIndex index;
+  final Future<void> Function() onRefresh;
+
+  @override
+  State<_HomeTabs> createState() => _HomeTabsState();
+}
+
+class _HomeTabsState extends State<_HomeTabs> {
+  late final List<CmsCategory?> _tabs = [null, ...widget.index.categories];
+  final PageController _pageController = PageController();
+  int _current = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _select(int target) {
+    if (target == _current) return;
+    setState(() => _current = target);
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 48,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+            itemCount: _tabs.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final selected = i == _current;
+              final title = _tabs[i]?.typeName ?? '推荐';
+              return Center(
+                child: GestureDetector(
+                  onTap: () => _select(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? primary.withValues(alpha: 0.22)
+                          : palette.surfaceHigh,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: selected ? primary.withValues(alpha: 0.55) : palette.border,
+                      ),
+                    ),
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.1,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                        color: selected ? palette.textPrimary : palette.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: _tabs.length,
+            onPageChanged: (i) => setState(() => _current = i),
+            itemBuilder: (context, i) {
+              final category = _tabs[i];
+              if (category == null) {
+                return VodGridView(
+                  videos: widget.index.videos,
+                  source: widget.source,
+                  onRefresh: widget.onRefresh,
+                );
+              }
+              return VodPagedGrid(
+                key: ValueKey('${widget.source.id}_${category.typeId}'),
+                source: widget.source,
+                typeId: category.typeId,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _SourceSelector extends StatelessWidget {

@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_util.dart';
 import '../data/cms_api.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
@@ -220,7 +221,8 @@ class _SearchResultTile extends StatelessWidget {
                       child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
                     )
                   : CachedNetworkImage(
-                      imageUrl: vod.pic,
+                      imageUrl: normalizeImageUrl(vod.pic),
+                      httpHeaders: imageHeadersFor(null),
                       fit: BoxFit.cover,
                       placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
                       errorWidget: (_, __, ___) => ColoredBox(

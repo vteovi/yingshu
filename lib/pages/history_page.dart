@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_util.dart';
 import '../models/media_record.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
@@ -120,7 +121,8 @@ class _HistoryTile extends StatelessWidget {
                         child: Icon(Icons.movie_outlined, color: context.palette.textFaint, size: 22),
                       )
                     : CachedNetworkImage(
-                        imageUrl: item.pic,
+                        imageUrl: normalizeImageUrl(item.pic),
+                      httpHeaders: imageHeadersFor(null),
                         fit: BoxFit.cover,
                         placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
                         errorWidget: (_, __, ___) => ColoredBox(

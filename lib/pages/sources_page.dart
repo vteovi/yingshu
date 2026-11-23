@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../data/subscription.dart';
 import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
 import '../state/app_state.dart';
