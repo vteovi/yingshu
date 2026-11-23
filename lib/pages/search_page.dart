@@ -50,6 +50,7 @@ class _SearchPageState extends State<SearchPage> {
     _focusNode.unfocus();
 
     final app = context.read<AppState>();
+    app.addSearchHistory(keyword);
     final sources = app.enabledSources;
     if (sources.isEmpty) {
       setState(() {
@@ -181,24 +182,98 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  Widget _buildSearchHistory(List<String> history) {
+    final app = context.read<AppState>();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '搜索记录',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: context.palette.textSecondary,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => _confirmClearHistory(app),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: const Text('清除全部', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 2,
+            children: [
+              for (final keyword in history)
+                InputChip(
+                  label: Text(keyword),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    _controller.text = keyword;
+                    _controller.selection = TextSelection.collapsed(offset: keyword.length);
+                    _search();
+                  },
+                  onDeleted: () => app.removeSearchHistory(keyword),
+                  deleteIcon: const Icon(Icons.close, size: 16),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmClearHistory(AppState app) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('清除搜索记录'),
+        content: const Text('所有搜索记录都会被删除，且无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await app.clearSearchHistory();
+  }
+
   Widget _buildBody(int enabledCount) {
     if (_hits.isEmpty) {
       if (_loading) {
         return LoadingView(text: '正在 $enabledCount 个源中检索，已完成 $_done 个…');
       }
-      if (_error != null) {
-        return EmptyView(
-          icon: Icons.search_off_rounded,
-          title: '没有结果',
-          subtitle: _error,
-        );
-      }
-      return EmptyView(
-        icon: Icons.travel_explore,
-        title: '聚合搜索',
-        subtitle: enabledCount == 0
-            ? '请先添加订阅源'
-            : '将在 $enabledCount 个启用的订阅源中同时检索，结果会标注来源。',
+      final history = context.select<AppState, List<String>>((s) => s.searchHistory);
+      final empty = _error != null
+          ? EmptyView(icon: Icons.search_off_rounded, title: '没有结果', subtitle: _error)
+          : EmptyView(
+              icon: Icons.travel_explore,
+              title: '聚合搜索',
+              subtitle: enabledCount == 0
+                  ? '请先添加订阅源'
+                  : '将在 $enabledCount 个启用的订阅源中同时检索，结果会标注来源。',
+            );
+      if (history.isEmpty) return empty;
+      // 有搜索记录时：空状态在上，下面列最近搜过的关键词
+      return ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [empty, _buildSearchHistory(history)],
       );
     }
 

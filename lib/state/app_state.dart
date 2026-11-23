@@ -105,6 +105,9 @@ class AppState extends ChangeNotifier {
   final List<FavoriteItem> _favorites = [];
   final List<HistoryItem> _history = [];
 
+  /// 搜索记录：最近搜过的关键词，新的在前，最多 20 条。
+  final List<String> _searchHistory = [];
+
   bool _checking = false;
   int _checkDone = 0;
   int _checkTotal = 0;
@@ -145,6 +148,7 @@ class AppState extends ChangeNotifier {
       _sources.where((source) => source.enabled).toList(growable: false);
   List<FavoriteItem> get favorites => List.unmodifiable(_favorites);
   List<HistoryItem> get history => List.unmodifiable(_history);
+  List<String> get searchHistory => List.unmodifiable(_searchHistory);
 
   // ---------------------------------------------------------------- 检测状态
   bool get checking => _checking;
@@ -194,6 +198,13 @@ class AppState extends ChangeNotifier {
       _history.add(HistoryItem.fromJson(map));
     }
     _history.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    for (final map in _store.readList(LocalStore.keySearchHistory)) {
+      final keyword = (map['keyword'] ?? '').toString().trim();
+      if (keyword.isNotEmpty && !_searchHistory.contains(keyword)) {
+        _searchHistory.add(keyword);
+      }
+    }
 
     final settings = _store.readMap(LocalStore.keySettings);
     _userAgent = (settings['userAgent'] ?? '').toString().trim();
@@ -616,6 +627,41 @@ class AppState extends ChangeNotifier {
     _posterMode = mode;
     await _persistSettings();
     notifyListeners();
+  }
+
+  // ---------------------------------------------------------------- 搜索记录
+  Future<void> addSearchHistory(String keyword) async {
+    final value = keyword.trim();
+    if (value.isEmpty) return;
+    _searchHistory.removeWhere((item) => item.toLowerCase() == value.toLowerCase());
+    _searchHistory.insert(0, value);
+    if (_searchHistory.length > 20) {
+      _searchHistory.removeRange(20, _searchHistory.length);
+    }
+    await _persistSearchHistory();
+    notifyListeners();
+  }
+
+  Future<void> removeSearchHistory(String keyword) async {
+    final before = _searchHistory.length;
+    _searchHistory.removeWhere((item) => item == keyword);
+    if (_searchHistory.length == before) return;
+    await _persistSearchHistory();
+    notifyListeners();
+  }
+
+  Future<void> clearSearchHistory() async {
+    if (_searchHistory.isEmpty) return;
+    _searchHistory.clear();
+    await _persistSearchHistory();
+    notifyListeners();
+  }
+
+  Future<void> _persistSearchHistory() {
+    return _store.writeList(
+      LocalStore.keySearchHistory,
+      _searchHistory.map((keyword) => {'keyword': keyword}).toList(growable: false),
+    );
   }
 
   Future<void> _persistSettings() {
