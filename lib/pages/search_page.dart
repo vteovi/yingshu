@@ -29,6 +29,9 @@ class _SearchPageState extends State<SearchPage> {
   String? _error;
   String? _filterSourceId;
 
+  /// 「全部 / 各来源」筛选标签做成了可左右滑动的分页。
+  final PageController _pager = PageController();
+
   /// 搜索结果用「海报网格」还是之前的「列表」样式。
   bool _listMode = false;
 
@@ -41,6 +44,7 @@ class _SearchPageState extends State<SearchPage> {
   void dispose() {
     _controller.dispose();
     _focusNode.dispose();
+    _pager.dispose();
     super.dispose();
   }
 
@@ -67,6 +71,10 @@ class _SearchPageState extends State<SearchPage> {
       _hits = const [];
       _done = 0;
       _total = sources.length;
+    });
+    // 新一轮搜索回到「全部」那一页
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pager.hasClients) _pager.jumpToPage(0);
     });
 
     // 边搜边上屏：哪个源先回来就先显示哪个源的结果
@@ -146,6 +154,30 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 筛选标签的 id 顺序：null 代表「全部」，后面按首次出结果的顺序列各来源。
+  List<String?> _filterIds() {
+    final ids = <String?>[null];
+    final seen = <String>{};
+    for (final hit in _hits) {
+      if (seen.add(hit.source.id)) ids.add(hit.source.id);
+    }
+    return ids;
+  }
+
+  void _selectFilter(String? id) {
+    if (_filterSourceId == id) return;
+    final ids = _filterIds();
+    final target = ids.indexOf(id);
+    setState(() => _filterSourceId = id);
+    if (target >= 0 && _pager.hasClients) {
+      _pager.animateToPage(
+        target,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   Widget _buildFilters() {
     final sourceCounts = <String, int>{};
     final sourceNames = <String, String>{};
@@ -165,7 +197,7 @@ class _SearchPageState extends State<SearchPage> {
             child: FilterChip(
               label: Text('全部 ${_hits.length}'),
               selected: _filterSourceId == null,
-              onSelected: (_) => setState(() => _filterSourceId = null),
+              onSelected: (_) => _selectFilter(null),
             ),
           ),
           for (final entry in sourceCounts.entries)
@@ -174,7 +206,7 @@ class _SearchPageState extends State<SearchPage> {
               child: FilterChip(
                 label: Text('${sourceNames[entry.key] ?? ''} ${entry.value}'),
                 selected: _filterSourceId == entry.key,
-                onSelected: (_) => setState(() => _filterSourceId = entry.key),
+                onSelected: (_) => _selectFilter(entry.key),
               ),
             ),
         ],
@@ -277,9 +309,32 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
 
-    final visible = _filterSourceId == null
+    final ids = _filterIds();
+    if (_filterSourceId != null && ids.indexOf(_filterSourceId) < 0) {
+      // 该来源这轮还没出结果（或已消失）：回到「全部」，避免页索引越界
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _filterSourceId = null);
+        if (_pager.hasClients) _pager.jumpToPage(0);
+      });
+    }
+
+    // 结果区做成横向分页：左右滑动即可在「全部 / 各来源」之间切换，顶部标签同步高亮
+    return PageView.builder(
+      controller: _pager,
+      itemCount: ids.length,
+      onPageChanged: (i) {
+        final id = ids[i];
+        if (id != _filterSourceId) setState(() => _filterSourceId = id);
+      },
+      itemBuilder: (context, i) => _buildResults(ids[i]),
+    );
+  }
+
+  Widget _buildResults(String? filterId) {
+    final visible = filterId == null
         ? _hits
-        : _hits.where((hit) => hit.source.id == _filterSourceId).toList(growable: false);
+        : _hits.where((hit) => hit.source.id == filterId).toList(growable: false);
 
     final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
     final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
