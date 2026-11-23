@@ -58,20 +58,17 @@ VodGridSpec vodGridSpec({
   required bool landscape,
 }) {
   const double caption = 46;
-  const double rowPitch = 16;
   final available = maxWidth - _horizontalPadding * 2;
 
   final portraitColumns = (available / _targetTileWidth(size, maxWidth)).floor().clamp(1, 10);
   final portraitWidth = (available - _spacing * (portraitColumns - 1)) / portraitColumns;
-  final portraitHeight = portraitWidth * 1.5 + caption;
 
   if (!landscape) {
+    // 列数由目标宽度取整决定，但单列/列数相同时还要限一下宽度：
+    // 否则某些屏宽下「中」和「大」会算出同样的列和同样的宽度，看起来像没生效。
     var width = portraitWidth;
-    if (portraitColumns == 1) {
-      // 单列时把卡片宽度收在有线范围内，最多比目标宽度宽 35%
-      final cap = _targetTileWidth(size, maxWidth) * 1.35;
-      if (width > cap) width = cap;
-    }
+    final cap = _targetTileWidth(size, maxWidth) * 1.18;
+    if (width > cap) width = cap;
     return VodGridSpec(
       columns: portraitColumns,
       width: width,
@@ -79,23 +76,23 @@ VodGridSpec vodGridSpec({
     );
   }
 
-  // 横版：列数按「一屏条目密度」挑，最多 3 列，保证卡片够大够好看
-  final portraitDensity = portraitColumns / (portraitHeight + rowPitch);
-  int bestColumns = 1;
-  double bestDiff = double.infinity;
-  final maxColumns = portraitColumns.clamp(1, 3);
-  for (var columns = 1; columns <= maxColumns; columns++) {
-    final width = (available - _spacing * (columns - 1)) / columns;
-    final height = width / (16 / 10) + 44;
-    final diff = ((columns / (height + rowPitch)) - portraitDensity).abs() / portraitDensity;
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestColumns = columns;
-    }
+  // 横版：按档位给一个「目标宽度」，再由可用宽度反推列数。
+  // 不能像以前那样只按一屏密度挑列数——手机上「中」「大」都会落到 1 列，
+  // 宽度被可用宽度吃满，两档看起来就一模一样了。
+  final landscapeTarget = switch (size) {
+    PosterSize.small => 128.0,
+    PosterSize.medium => 200.0,
+    PosterSize.large => 300.0,
+  } * _wideScale(maxWidth);
+  final columns = (available / landscapeTarget).floor().clamp(1, 4);
+  var width = (available - _spacing * (columns - 1)) / columns;
+  if (columns == 1) {
+    // 单列限宽，避免「中」和「大」都变成整屏宽度
+    final cap = landscapeTarget * 1.35;
+    if (width > cap) width = cap;
   }
-  final width = (available - _spacing * (bestColumns - 1)) / bestColumns;
   return VodGridSpec(
-    columns: bestColumns,
+    columns: columns,
     width: width,
     extent: width / (16 / 10) + 44,
   );
