@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/image_util.dart';
 import '../models/media_record.dart';
 import '../models/vod.dart';
 import '../state/app_state.dart';
@@ -40,9 +41,57 @@ class FavoritesPage extends StatelessWidget {
               builder: (context) {
                 final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
                 final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
+                final layout = context.select<AppState, PosterLayout>((s) => s.posterLayout);
+
+                String picUrl(FavoriteItem item) => normalizeImageUrl(
+                      item.pic,
+                      api: app.findSource(item.sourceId)?.api,
+                    );
+
+                Widget cardFor(BuildContext ctx, int i) {
+                  final item = favorites[i];
+                  return VodCard(
+                    vod: VodItem(
+                      vodId: item.vodId,
+                      name: item.name,
+                      pic: item.pic,
+                      remarks: item.remarks,
+                    ),
+                    apiBase: app.findSource(item.sourceId)?.api,
+                    landscape: landscape,
+                    footer: item.sourceName,
+                    onTap: () => _openDetail(ctx, app, item),
+                    onLongPress: () => _confirmRemove(ctx, app, item),
+                  );
+                }
 
                 return LayoutBuilder(
                   builder: (context, constraints) {
+                    // 原始比例：和首页同一套瀑布流，按海报自身比例排版
+                    if (layout == PosterLayout.actual) {
+                      return SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: VodMasonryGrid(
+                          itemCount: favorites.length,
+                          size: posterSize,
+                          maxWidth: constraints.maxWidth,
+                          landscape: landscape,
+                          ratioOf: (i) {
+                            final url = picUrl(favorites[i]);
+                            return PosterRatioStore.instance.ratioOf(url) ??
+                                (landscape ? 16 / 10 : 2 / 3);
+                          },
+                          onLayoutDone: (ctx) {
+                            for (final item in favorites) {
+                              probePosterRatio(ctx, picUrl(item), app.findSource(item.sourceId)?.api);
+                            }
+                          },
+                          itemBuilder: cardFor,
+                        ),
+                      );
+                    }
+
                     final spec = vodGridSpec(
                       maxWidth: constraints.maxWidth,
                       size: posterSize,
@@ -56,24 +105,10 @@ class FavoritesPage extends StatelessWidget {
                         landscape: landscape,
                       ),
                       itemCount: favorites.length,
-                      itemBuilder: (context, i) {
-                        final item = favorites[i];
-                        return VodCell(
-                          width: spec.width,
-                          child: VodCard(
-                            vod: VodItem(
-                              vodId: item.vodId,
-                              name: item.name,
-                              pic: item.pic,
-                              remarks: item.remarks,
-                            ),
-                            landscape: landscape,
-                            footer: item.sourceName,
-                            onTap: () => _openDetail(context, app, item),
-                            onLongPress: () => _confirmRemove(context, app, item),
-                          ),
-                        );
-                      },
+                      itemBuilder: (context, i) => VodCell(
+                        width: spec.width,
+                        child: cardFor(context, i),
+                      ),
                     );
                   },
                 );

@@ -171,7 +171,7 @@ class PosterRatioStore extends ChangeNotifier {
 }
 
 /// 解析一次图片尺寸，把宽高比写进 [PosterRatioStore]。
-void _probePosterRatio(BuildContext context, String url, String? api) {
+void probePosterRatio(BuildContext context, String url, String? api) {
   if (url.isEmpty || PosterRatioStore.instance.ratioOf(url) != null) return;
   final provider = CachedNetworkImageProvider(
     url,
@@ -193,20 +193,32 @@ void _probePosterRatio(BuildContext context, String url, String? api) {
 
 /// 「原始比例」模式的瀑布流：图片不裁切，按自身宽高比决定卡片高度，
 /// 逐张填进当前最矮的一列，于是行与行之间错落不齐。
-class _MasonryGrid extends StatelessWidget {
-  const _MasonryGrid({
-    required this.videos,
-    required this.source,
+///
+/// 首页 / 收藏 / 历史共用这一个实现，只是各自传自己的卡片 [itemBuilder]。
+class VodMasonryGrid extends StatelessWidget {
+  const VodMasonryGrid({
+    super.key,
+    required this.itemCount,
+    required this.ratioOf,
+    required this.itemBuilder,
     required this.size,
     required this.maxWidth,
-    required this.landscape,
+    this.landscape = false,
+    this.onLayoutDone,
   });
 
-  final List<VodItem> videos;
-  final CmsSource source;
+  final int itemCount;
+
+  /// 第 index 张海报的宽高比；还没量出来时返回兜底比例即可。
+  final double Function(int index) ratioOf;
+
+  final Widget Function(BuildContext context, int index) itemBuilder;
   final PosterSize size;
   final double maxWidth;
   final bool landscape;
+
+  /// 排版完成后回调，用来批量量取图片真实比例。
+  final void Function(BuildContext context)? onLayoutDone;
 
   @override
   Widget build(BuildContext context) {
@@ -217,21 +229,19 @@ class _MasonryGrid extends StatelessWidget {
         final target = _targetTileWidth(size, maxWidth);
         final columns = (available / target).floor().clamp(1, 8);
         final itemWidth = (available - _spacing * (columns - 1)) / columns;
+        final caption = landscape ? 44.0 : 46.0;
 
         final heights = List<double>.filled(columns, 0);
         final placements = <_Placement>[];
-        for (final vod in videos) {
-          final url = normalizeImageUrl(vod.pic, api: source.api);
-          final ratio = PosterRatioStore.instance.ratioOf(url) ??
-              (landscape ? 16 / 10 : 2 / 3);
-          final caption = landscape ? 52.0 : 46.0;
+        for (var index = 0; index < itemCount; index++) {
+          final ratio = ratioOf(index);
           final height = itemWidth / ratio + caption;
           var column = 0;
           for (var i = 1; i < columns; i++) {
             if (heights[i] < heights[column]) column = i;
           }
           placements.add(_Placement(
-            vod: vod,
+            index: index,
             left: column * (itemWidth + _spacing),
             top: heights[column],
             width: itemWidth,
@@ -241,13 +251,12 @@ class _MasonryGrid extends StatelessWidget {
         }
         final total = heights.reduce((a, b) => a > b ? a : b);
 
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!context.mounted) return;
-          for (final vod in videos) {
-            final url = normalizeImageUrl(vod.pic, api: source.api);
-            _probePosterRatio(context, url, source.api);
-          }
-        });
+        if (onLayoutDone != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            onLayoutDone!(context);
+          });
+        }
 
         return Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -266,21 +275,7 @@ class _MasonryGrid extends StatelessWidget {
                     top: p.top,
                     width: p.width,
                     height: p.height,
-                    child: VodCard(
-                      vod: p.vod,
-                      apiBase: source.api,
-                      landscape: landscape,
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => DetailPage(
-                            source: source,
-                            vodId: p.vod.vodId,
-                            initialName: p.vod.name,
-                            initialPic: p.vod.pic,
-                          ),
-                        ),
-                      ),
-                    ),
+                    child: itemBuilder(context, p.index),
                   ),
               ],
             ),
@@ -293,14 +288,14 @@ class _MasonryGrid extends StatelessWidget {
 
 class _Placement {
   _Placement({
-    required this.vod,
+    required this.index,
     required this.left,
     required this.top,
     required this.width,
     required this.height,
   });
 
-  final VodItem vod;
+  final int index;
   final double left;
   final double top;
   final double width;
@@ -357,12 +352,40 @@ class VodGridView extends StatelessWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
-                child: _MasonryGrid(
-                  videos: videos,
-                  source: source,
+                child: VodMasonryGrid(
+                  itemCount: videos.length,
                   size: posterSize,
                   maxWidth: constraints.maxWidth,
                   landscape: landscape,
+                  ratioOf: (i) {
+                    final url = normalizeImageUrl(videos[i].pic, api: source.api);
+                    return PosterRatioStore.instance.ratioOf(url) ??
+                        (landscape ? 16 / 10 : 2 / 3);
+                  },
+                  onLayoutDone: (ctx) {
+                    for (final vod in videos) {
+                      final url = normalizeImageUrl(vod.pic, api: source.api);
+                      probePosterRatio(ctx, url, source.api);
+                    }
+                  },
+                  itemBuilder: (ctx, i) {
+                    final vod = videos[i];
+                    return VodCard(
+                      vod: vod,
+                      apiBase: source.api,
+                      landscape: landscape,
+                      onTap: () => Navigator.of(ctx).push(
+                        MaterialPageRoute(
+                          builder: (_) => DetailPage(
+                            source: source,
+                            vodId: vod.vodId,
+                            initialName: vod.name,
+                            initialPic: vod.pic,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
               footer,
@@ -546,12 +569,40 @@ class _VodPagedGridState extends State<VodPagedGrid>
           slivers: [
             if (layout == PosterLayout.actual)
               SliverToBoxAdapter(
-                child: _MasonryGrid(
-                  videos: _items,
-                  source: widget.source,
+                child: VodMasonryGrid(
+                  itemCount: _items.length,
                   size: posterSize,
                   maxWidth: constraints.maxWidth,
                   landscape: landscape,
+                  ratioOf: (i) {
+                    final url = normalizeImageUrl(_items[i].pic, api: widget.source.api);
+                    return PosterRatioStore.instance.ratioOf(url) ??
+                        (landscape ? 16 / 10 : 2 / 3);
+                  },
+                  onLayoutDone: (ctx) {
+                    for (final vod in _items) {
+                      final url = normalizeImageUrl(vod.pic, api: widget.source.api);
+                      probePosterRatio(ctx, url, widget.source.api);
+                    }
+                  },
+                  itemBuilder: (ctx, i) {
+                    final vod = _items[i];
+                    return VodCard(
+                      vod: vod,
+                      apiBase: widget.source.api,
+                      landscape: landscape,
+                      onTap: () => Navigator.of(ctx).push(
+                        MaterialPageRoute(
+                          builder: (_) => DetailPage(
+                            source: widget.source,
+                            vodId: vod.vodId,
+                            initialName: vod.name,
+                            initialPic: vod.pic,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               )
             else

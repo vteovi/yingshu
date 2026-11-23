@@ -1,8 +1,6 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../models/media_record.dart';
 import '../models/vod.dart';
@@ -11,8 +9,8 @@ import '../widgets/state_views.dart';
 import '../widgets/vod_card.dart';
 import '../widgets/vod_grid.dart';
 import 'detail_page.dart';
-import '../theme/app_palette.dart';
 
+/// 观看历史：卡片样式、竖版/横版/原始比例全部跟随首页设置。
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
 
@@ -44,61 +42,71 @@ class HistoryPage extends StatelessWidget {
               builder: (context) {
                 final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
                 final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
-                final thumbSize = switch (posterSize) {
-                  PosterSize.small => const Size(52, 74),
-                  PosterSize.medium => const Size(62, 88),
-                  PosterSize.large => const Size(74, 105),
-                };
+                final layout = context.select<AppState, PosterLayout>((s) => s.posterLayout);
 
-                if (landscape) {
-                  return LayoutBuilder(
-                    builder: (context, constraints) {
-                      final spec = vodGridSpec(
-                        maxWidth: constraints.maxWidth,
-                        size: posterSize,
-                        landscape: true,
-                      );
-                      return GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                        gridDelegate: vodGridDelegate(
-                          maxWidth: constraints.maxWidth,
-                          size: posterSize,
-                          landscape: true,
-                        ),
-                        itemCount: history.length,
-                        itemBuilder: (context, i) {
-                          final item = history[i];
-                          return VodCell(
-                            width: spec.width,
-                            child: VodCard(
-                              vod: VodItem(
-                                vodId: item.vodId,
-                                name: item.name,
-                                pic: item.pic,
-                              ),
-                              landscape: true,
-                              footer: _historyFooter(item),
-                              onTap: () => _resume(context, app, item),
-                              onLongPress: () => app.removeHistory(item.sourceId, item.vodId),
-                            ),
-                          );
-                        },
-                      );
-                    },
+                String picUrl(HistoryItem item) =>
+                    normalizeImageUrl(item.pic, api: app.findSource(item.sourceId)?.api);
+
+                Widget cardFor(BuildContext ctx, int i) {
+                  final item = history[i];
+                  return VodCard(
+                    vod: VodItem(vodId: item.vodId, name: item.name, pic: item.pic),
+                    apiBase: app.findSource(item.sourceId)?.api,
+                    landscape: landscape,
+                    footer: _historyFooter(item),
+                    onTap: () => _resume(ctx, app, item),
+                    onLongPress: () => app.removeHistory(item.sourceId, item.vodId),
                   );
                 }
 
-                return ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: history.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, i) {
-                    final item = history[i];
-                    return _HistoryTile(
-                      item: item,
-                      thumbSize: thumbSize,
-                      onTap: () => _resume(context, app, item),
-                      onDelete: () => app.removeHistory(item.sourceId, item.vodId),
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    // 原始比例：和首页同一套瀑布流
+                    if (layout == PosterLayout.actual) {
+                      return SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: VodMasonryGrid(
+                          itemCount: history.length,
+                          size: posterSize,
+                          maxWidth: constraints.maxWidth,
+                          landscape: landscape,
+                          ratioOf: (i) {
+                            final url = picUrl(history[i]);
+                            return PosterRatioStore.instance.ratioOf(url) ??
+                                (landscape ? 16 / 10 : 2 / 3);
+                          },
+                          onLayoutDone: (ctx) {
+                            for (final item in history) {
+                              probePosterRatio(
+                                ctx,
+                                picUrl(item),
+                                app.findSource(item.sourceId)?.api,
+                              );
+                            }
+                          },
+                          itemBuilder: cardFor,
+                        ),
+                      );
+                    }
+
+                    final spec = vodGridSpec(
+                      maxWidth: constraints.maxWidth,
+                      size: posterSize,
+                      landscape: landscape,
+                    );
+                    return GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      gridDelegate: vodGridDelegate(
+                        maxWidth: constraints.maxWidth,
+                        size: posterSize,
+                        landscape: landscape,
+                      ),
+                      itemCount: history.length,
+                      itemBuilder: (context, i) => VodCell(
+                        width: spec.width,
+                        child: cardFor(context, i),
+                      ),
                     );
                   },
                 );
@@ -144,126 +152,6 @@ class HistoryPage extends StatelessWidget {
   }
 }
 
-class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({
-    required this.item,
-    required this.thumbSize,
-    required this.onTap,
-    required this.onDelete,
-  });
-
-  final HistoryItem item;
-  final Size thumbSize;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: context.palette.surface,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(9),
-              child: SizedBox(
-                width: thumbSize.width,
-                height: thumbSize.height,
-                child: item.pic.isEmpty
-                    ? ColoredBox(
-                        color: context.palette.surfaceHigh,
-                        child: Icon(Icons.movie_outlined, color: context.palette.textFaint, size: 22),
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: normalizeImageUrl(item.pic),
-                      cacheManager: PosterCacheManager.instance,
-                        httpHeaders: imageHeadersFor(null),
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
-                        errorWidget: (_, __, ___) => ColoredBox(
-                          color: context.palette.surfaceHigh,
-                          child: Icon(Icons.movie_outlined, color: context.palette.textFaint, size: 22),
-                        ),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        tooltip: '删除记录',
-                        onPressed: onDelete,
-                        icon: Icon(Icons.close, size: 16, color: context.palette.textFaint),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    [
-                      if (item.episodeName.isNotEmpty) '看到 ${item.episodeName}',
-                      if (item.positionMs > 0) _formatDuration(item.position),
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: item.progress,
-                      minHeight: 3,
-                      backgroundColor: context.palette.textFaint,
-                      color: const Color(0xFF7FA6FF),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.sourceName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11, color: context.palette.textFaint),
-                        ),
-                      ),
-                      Text(
-                        _relativeTime(item.updatedAt),
-                        style: TextStyle(fontSize: 11, color: context.palette.textFaint),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 String _historyFooter(HistoryItem item) {
   return [
     if (item.episodeName.isNotEmpty) '看到 ${item.episodeName}',
@@ -278,15 +166,3 @@ String _formatDuration(Duration value) {
   final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
   return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
 }
-
-String _relativeTime(int millis) {
-  if (millis <= 0) return '';
-  final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(millis));
-  if (diff.inMinutes < 1) return '刚刚';
-  if (diff.inHours < 1) return '${diff.inMinutes} 分钟前';
-  if (diff.inDays < 1) return '${diff.inHours} 小时前';
-  if (diff.inDays < 30) return '${diff.inDays} 天前';
-  final date = DateTime.fromMillisecondsSinceEpoch(millis);
-  return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-}
-

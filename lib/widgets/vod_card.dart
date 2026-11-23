@@ -84,7 +84,7 @@ class VodCard extends StatelessWidget {
           // 文字区固定高度：标题一行还是两行都一样，海报底边才能对齐，
           // 不然一屏里有的卡多出一行字、有的少一行，看起来就不规整。
           SizedBox(
-            height: landscape ? 18 : 32,
+            height: 32,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
