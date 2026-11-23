@@ -44,6 +44,27 @@ class VodItem {
 
   bool get hasPlayable => playUrl.trim().isNotEmpty;
 
+  VodItem copyWith({String? pic, String? remarks}) {
+    return VodItem(
+      vodId: vodId,
+      name: name,
+      pic: pic ?? this.pic,
+      remarks: remarks ?? this.remarks,
+      typeId: typeId,
+      typeName: typeName,
+      year: year,
+      area: area,
+      lang: lang,
+      actor: actor,
+      director: director,
+      content: content,
+      playFrom: playFrom,
+      playUrl: playUrl,
+      score: score,
+      updatedAt: updatedAt,
+    );
+  }
+
   String get cleanContent {
     var text = content
         .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')

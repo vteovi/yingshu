@@ -5,7 +5,10 @@ import 'history_page.dart';
 import 'home_page.dart';
 import 'settings_page.dart';
 
-/// 底部四个主入口，用 IndexedStack 保留各页状态。
+/// 四个主入口，用 IndexedStack 保留各页状态。
+///
+/// 手机 / 窄屏：底部导航栏；
+/// 平板 / 大屏（宽 ≥ 900dp）：导航栏改成左侧竖条，正文占满剩余宽度。
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -16,28 +19,74 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   int _index = 0;
 
+  static const List<_Dest> _dests = [
+    _Dest(Icons.home_outlined, Icons.home, '首页'),
+    _Dest(Icons.favorite_border, Icons.favorite, '收藏'),
+    _Dest(Icons.history, Icons.history, '历史'),
+    _Dest(Icons.settings_outlined, Icons.settings, '设置'),
+  ];
+
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final wide = width >= 900;
+    final extended = width >= 1200;
+
+    final pages = const [
+      HomePage(),
+      FavoritesPage(),
+      HistoryPage(),
+      SettingsPage(),
+    ];
+
+    if (!wide) {
+      return Scaffold(
+        body: IndexedStack(index: _index, children: pages),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (value) => setState(() => _index = value),
+          destinations: [
+            for (final dest in _dests)
+              NavigationDestination(
+                icon: Icon(dest.icon),
+                selectedIcon: Icon(dest.selectedIcon),
+                label: dest.label,
+              ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: const [
-          HomePage(),
-          FavoritesPage(),
-          HistoryPage(),
-          SettingsPage(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '首页'),
-          NavigationDestination(icon: Icon(Icons.favorite_border), selectedIcon: Icon(Icons.favorite), label: '收藏'),
-          NavigationDestination(icon: Icon(Icons.history), selectedIcon: Icon(Icons.history), label: '历史'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: '设置'),
+      body: Row(
+        children: [
+          NavigationRail(
+            selectedIndex: _index,
+            extended: extended,
+            labelType: extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
+            minExtendedWidth: 180,
+            onDestinationSelected: (value) => setState(() => _index = value),
+            destinations: [
+              for (final dest in _dests)
+                NavigationRailDestination(
+                  icon: Icon(dest.icon),
+                  selectedIcon: Icon(dest.selectedIcon),
+                  label: Text(dest.label),
+                ),
+            ],
+          ),
+          const VerticalDivider(width: 1, thickness: 1),
+          Expanded(child: IndexedStack(index: _index, children: pages)),
         ],
       ),
     );
   }
+}
+
+class _Dest {
+  const _Dest(this.icon, this.selectedIcon, this.label);
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
 }

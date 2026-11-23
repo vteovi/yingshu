@@ -208,7 +208,9 @@ class SourcesPage extends StatelessWidget {
       }
     }
     if (!context.mounted) return;
-    _snack(context, added == 0 ? '这些源都已存在，未新增' : '导入成功，新增 $added 个源');
+    _snack(context, added == 0
+        ? '这些源都已存在，原有 ${app.sources.length} 个源保留'
+        : '导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
   }
 
   /// 本地 JSON / TXT 文件导入（TVBox 配置文件、影枢导出文件都可以）。
@@ -256,8 +258,8 @@ class SourcesPage extends StatelessWidget {
     }
     if (!context.mounted) return;
     _snack(context, added == 0
-        ? '「$name」里的源都已存在'
-        : '从「$name」导入成功，新增 $added 个源');
+        ? '「$name」里的源都已存在，原有 ${app.sources.length} 个源保留'
+        : '从「$name」导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
   }
 
   Future<void> _importUrl(BuildContext context, AppState app) async {
@@ -290,7 +292,9 @@ class SourcesPage extends StatelessWidget {
     try {
       final added = await app.importFromUrl(url);
       if (!context.mounted) return;
-      _snack(context, added == 0 ? '订阅内容中的源都已存在' : '订阅导入成功，新增 $added 个源');
+      _snack(context, added == 0
+          ? '订阅内容中的源都已存在，原有 ${app.sources.length} 个源保留'
+          : '订阅导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
     } catch (error) {
       if (!context.mounted) return;
       _snack(context, '订阅导入失败：$error');

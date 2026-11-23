@@ -1,21 +1,30 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:video_player/video_player.dart';
+import 'package:volume_controller/volume_controller.dart';
 
 import '../core/constants.dart';
 import '../core/hls_probe.dart';
+import '../core/play_resolver.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
-import '../theme/app_palette.dart';
+
+/// 播放页配色：视频页恒为深色底，所以这里的文字/图标不跟随应用主题，
+/// 统一用白系颜色，保证在暗画面上也看得清。
+const Color _kText = Color(0xFFFFFFFF);
+const Color _kTextDim = Color(0xE6FFFFFF);
+const Color _kTextFaint = Color(0x99FFFFFF);
+const Color _kAccent = Color(0xFF8FB6FF);
 
 /// 单页播放器：video_player（Android 侧 ExoPlayer），支持 HLS / 直链 / 倍速 / 连播 / 断点续播。
 ///
-/// 换掉 libmpv 的原因：m3u8 里有广告段拼接（`#EXT-X-DISCONTINUITY`）时，
-/// libmpv 往往播完广告段就停住、进度条也拖不动；ExoPlayer 对 HLS 的分段与
-/// 拖动支持稳定得多，和 ZY-Player 用的是同一套内核。
+/// 进入即沉浸式全屏（隐藏状态栏与导航栏），并按视频比例自动横/竖屏。
+/// 手势：左右半屏上下滑调亮度 / 音量，双击播放暂停，双指上下滑调速。
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
@@ -51,11 +60,14 @@ class _PlayerPageState extends State<PlayerPage> {
   AppState? _state;
   Timer? _hideTimer;
   Timer? _saveTimer;
+  Timer? _hudTimer;
+
+  final PlayResolver _resolver = PlayResolver();
+  final VolumeController _volumeController = VolumeController.instance;
 
   int _index = 0;
   double _rate = 1.0;
   bool _controlsVisible = true;
-  bool _fullscreen = false;
   bool _dragging = false;
   double _dragValue = 0;
   bool _buffering = false;
@@ -65,10 +77,33 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 换集 / 重开后自增，用来丢弃上一个控制器残留的异步回调。
   int _session = 0;
 
+  // ---------------------------------------------------------------- 手势状态
+  final Map<int, Offset> _pointerPositions = <int, Offset>{};
+  bool get _twoFinger => _pointerPositions.length >= 2;
+  double? _twoFingerLastY;
+  double _speedAccum = 0;
+
+  bool _gyrating = false;
+  int _gestureSide = 0; // 0 无 / 1 亮度 / 2 音量
+  double _gestureStartY = 0;
+  double _gestureStartValue = 1;
+  double _brightness = 1;
+  double _volume = 1;
+
+  IconData? _hudIcon;
+  String? _hudText;
+  double? _hudLevel;
+
+  // ---------------------------------------------------------------- 画面比例
+  double? _aspectOverride;
+  String _aspectLabel = '自适应';
+
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex.clamp(0, widget.episodes.length - 1).toInt();
+    _enterImmersive();
+    _loadSystemLevels();
     _openCurrent(seekTo: widget.initialPosition);
     _scheduleHide();
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) => _saveProgress());
@@ -87,11 +122,41 @@ class _PlayerPageState extends State<PlayerPage> {
   Duration get _duration => _value.duration;
   bool get _playing => _value.isPlaying;
 
+  // ------------------------------------------------------------------ 全屏
+
+  Future<void> _enterImmersive() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  Future<void> _applyOrientation(double aspectRatio) async {
+    final landscape = aspectRatio >= 1.25;
+    await SystemChrome.setPreferredOrientations(
+      landscape
+          ? const [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
+          : const [DeviceOrientation.portraitUp],
+    );
+  }
+
+  Future<void> _loadSystemLevels() async {
+    try {
+      _brightness = (await ScreenBrightness.instance.application).clamp(0.0, 1.0);
+    } catch (_) {}
+    try {
+      _volume = (await _volumeController.getVolume()).clamp(0.0, 1.0);
+    } catch (_) {}
+  }
+
   // ------------------------------------------------------------------ 播放
 
-  Future<void> _openCurrent({Duration? seekTo}) async {
+  Future<void> _openCurrent({Duration? seekTo, int attempt = 0}) async {
     final session = ++_session;
     final episode = widget.episodes[_index];
+    final userAgent = attempt == 0 ? kPlayerUserAgent : kDefaultUserAgent;
     await _releaseController();
     if (!mounted) return;
 
@@ -101,16 +166,35 @@ class _PlayerPageState extends State<PlayerPage> {
       _buffering = true;
     });
 
+    // 网页播放页 → 抓页面里的 m3u8；直链 / m3u8 原样返回。
+    var url = episode.url;
+    try {
+      url = await _resolver.resolve(episode.url, userAgent: userAgent);
+    } catch (_) {
+      url = episode.url;
+    }
+    if (!mounted || session != _session) return;
+    final resolved = url;
+
     final controller = VideoPlayerController.networkUrl(
-      Uri.parse(episode.url),
+      Uri.parse(resolved),
       httpHeaders: {
-        'User-Agent': kPlayerUserAgent,
+        'User-Agent': userAgent,
+        'Accept': '*/*',
       },
     );
     _controller = controller;
     void listener() {
       if (!mounted || session != _session) return;
       final value = controller.value;
+      if (value.hasError && _error == null) {
+        final message = _describe(value.errorDescription ?? '未知错误');
+        setState(() {
+          _error = message;
+          _buffering = false;
+        });
+        return;
+      }
       if (value.isBuffering != _buffering) {
         setState(() => _buffering = value.isBuffering);
       } else {
@@ -135,13 +219,21 @@ class _PlayerPageState extends State<PlayerPage> {
       await controller.play();
       if (!mounted || session != _session) return;
       setState(() => _buffering = false);
+      await _applyOrientation(controller.value.aspectRatio);
 
       if (seekTo == null) {
         // 有些源的 m3u8 把广告拼在正片前面，探测到就跳过去
-        unawaited(_skipIntroAd(episode.url, session));
+        unawaited(_skipIntroAd(resolved, session));
       }
     } catch (e) {
       if (!mounted || session != _session) return;
+      // 第一遍用手机 UA，失败后换成桌面 UA 再试一次（不少 CDN 只认桌面 UA）
+      if (attempt < 1) {
+        unawaited(Future<void>.delayed(const Duration(milliseconds: 300), () {
+          if (mounted && session == _session) _openCurrent(seekTo: seekTo, attempt: attempt + 1);
+        }));
+        return;
+      }
       setState(() {
         _error = _describe(e);
         _buffering = false;
@@ -166,6 +258,9 @@ class _PlayerPageState extends State<PlayerPage> {
     final text = error.toString();
     if (text.contains('403')) return '片源地址拒绝了请求（403），可能该源已失效或需要特定 UA';
     if (text.contains('404')) return '片源地址不存在（404）';
+    if (text.contains('Source error')) {
+      return '片源无法加载（Source error）：该线路可能失效，或地址不是真正的视频流。换个线路再试。';
+    }
     return text.replaceFirst('Exception: ', '');
   }
 
@@ -182,7 +277,6 @@ class _PlayerPageState extends State<PlayerPage> {
     if (intro == null || !intro.worthSkipping) return;
     if (!mounted || session != _session) return;
 
-    // 用户已经自己拖过进度，就别再插手了
     final current = _position;
     if (current > intro.adDuration + const Duration(seconds: 15)) return;
 
@@ -247,6 +341,103 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  // ------------------------------------------------------------------ 手势
+
+  void _onPointerDown(PointerDownEvent event) {
+    _pointerPositions[event.pointer] = event.localPosition;
+    if (_twoFinger) {
+      _twoFingerLastY = null;
+      _speedAccum = 0;
+      _gyrating = false;
+    }
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (!_pointerPositions.containsKey(event.pointer)) return;
+    _pointerPositions[event.pointer] = event.localPosition;
+    if (!_twoFinger) return;
+
+    final ys = _pointerPositions.values.map((o) => o.dy).toList();
+    final average = ys.reduce((a, b) => a + b) / ys.length;
+    final last = _twoFingerLastY;
+    _twoFingerLastY = average;
+    if (last == null) return;
+    _speedAccum += average - last;
+    while (_speedAccum.abs() >= 34) {
+      final up = _speedAccum < 0;
+      _speedAccum += up ? 34 : -34;
+      _changeRate(up ? 0.25 : -0.25);
+    }
+  }
+
+  void _onPointerUp(PointerEvent event) {
+    _pointerPositions.remove(event.pointer);
+    if (_pointerPositions.length < 2) {
+      _twoFingerLastY = null;
+      _speedAccum = 0;
+    }
+  }
+
+  Future<void> _changeRate(double delta) async {
+    final next = (_rate + delta).clamp(0.5, 3.0);
+    if ((next - _rate).abs() < 0.001) return;
+    setState(() => _rate = next);
+    try {
+      await _controller?.setPlaybackSpeed(next);
+    } catch (_) {}
+    _showHud(Icons.speed_rounded, '${next.toStringAsFixed(2)}× 倍速', null);
+  }
+
+  void _onVerticalDragStart(DragStartDetails details) {
+    if (_twoFinger) return;
+    final width = MediaQuery.of(context).size.width;
+    _gestureSide = details.localPosition.dx < width / 2 ? 1 : 2;
+    _gestureStartY = details.localPosition.dy;
+    _gestureStartValue = _gestureSide == 1 ? _brightness : _volume;
+    _gyrating = true;
+    _hideTimer?.cancel();
+    setState(() => _controlsVisible = true);
+  }
+
+  void _onVerticalDragUpdate(DragUpdateDetails details) {
+    if (!_gyrating || _twoFinger) return;
+    final height = math.max(MediaQuery.of(context).size.height, 1.0);
+    final dy = (details.localPosition.dy - _gestureStartY) / height;
+    final next = (_gestureStartValue - dy * 1.4).clamp(0.0, 1.0);
+    if (_gestureSide == 1) {
+      _brightness = next;
+      unawaited(ScreenBrightness.instance.setApplicationScreenBrightness(next).catchError((_) {}));
+      _showHud(Icons.brightness_6_rounded, '亮度 ${(next * 100).round()}%', next);
+    } else if (_gestureSide == 2) {
+      _volume = next;
+      unawaited(_volumeController.setVolume(next).catchError((_) {}));
+      _showHud(Icons.volume_up_rounded, '音量 ${(next * 100).round()}', next);
+    }
+  }
+
+  void _onVerticalDragEnd(DragEndDetails details) {
+    _gyrating = false;
+    _gestureSide = 0;
+    _scheduleHide();
+  }
+
+  void _showHud(IconData icon, String text, double? level) {
+    setState(() {
+      _hudIcon = icon;
+      _hudText = text;
+      _hudLevel = level;
+    });
+    _hudTimer?.cancel();
+    _hudTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      setState(() {
+        _hudIcon = null;
+        _hudText = null;
+        _hudLevel = null;
+      });
+    });
+  }
+
   // ------------------------------------------------------------------ 控件
 
   void _scheduleHide() {
@@ -272,17 +463,6 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  Future<void> _seekBy(Duration delta) async {
-    final controller = _controller;
-    if (controller == null) return;
-    final total = _duration;
-    var target = _position + delta;
-    if (target < Duration.zero) target = Duration.zero;
-    if (total > Duration.zero && target > total) target = total;
-    await controller.seekTo(target);
-    _showControls();
-  }
-
   Future<void> _seekTo(Duration target) async {
     final controller = _controller;
     if (controller == null) return;
@@ -304,28 +484,6 @@ class _PlayerPageState extends State<PlayerPage> {
       await controller.play();
     }
     _showControls();
-  }
-
-  Future<void> _toggleFullscreen() async {
-    setState(() {
-      _fullscreen = !_fullscreen;
-      _controlsVisible = true;
-    });
-    _scheduleHide();
-    if (_fullscreen) {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      await SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } else {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      await SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    }
   }
 
   void _showEpisodes() {
@@ -354,7 +512,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           '${widget.groupName} · 共 ${widget.episodes.length} 集',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+                          style: const TextStyle(fontSize: 12, color: Colors.black45),
                         ),
                       ),
                       IconButton(
@@ -382,7 +540,7 @@ class _PlayerPageState extends State<PlayerPage> {
                                 child: Center(
                                   child: Text(
                                     '${i + 1}',
-                                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+                                    style: const TextStyle(fontSize: 12, color: Colors.black45),
                                   ),
                                 ),
                               ),
@@ -392,7 +550,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,
-                            color: selected ? context.palette.textPrimary : context.palette.textSecondary,
+                            color: selected ? Colors.black : Colors.black87,
                             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                           ),
                         ),
@@ -412,11 +570,134 @@ class _PlayerPageState extends State<PlayerPage> {
     ).whenComplete(_showControls);
   }
 
+  // ------------------------------------------------------------ 视频比例
+
+  static const List<(String, double?)> _aspectOptions = [
+    ('自适应（按片源原始比例）', null),
+    ('16 : 9（宽屏）', 16 / 9),
+    ('4 : 3', 4 / 3),
+    ('21 : 9（超宽）', 21 / 9),
+    ('2.35 : 1（影院）', 2.35),
+    ('1 : 1（方形）', 1.0),
+    ('9 : 16（竖屏铺满）', 9 / 16),
+    ('3 : 4（竖屏）', 3 / 4),
+  ];
+
+  void _showAspectSheet() {
+    _hideTimer?.cancel();
+    setState(() => _controlsVisible = true);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.aspect_ratio_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('画面比例', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              for (final option in _aspectOptions)
+                ListTile(
+                  dense: true,
+                  title: Text(option.$1, style: const TextStyle(fontSize: 14)),
+                  trailing: _aspectLabel.startsWith(option.$1.substring(0, 2))
+                      ? const Icon(Icons.check_rounded, size: 18)
+                      : null,
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    setState(() {
+                      _aspectOverride = option.$2;
+                      _aspectLabel = option.$1;
+                    });
+                  },
+                ),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.edit_rounded, size: 18),
+                title: const Text('自定义比例…', style: TextStyle(fontSize: 14)),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _showCustomAspectDialog();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    ).whenComplete(_showControls);
+  }
+
+  Future<void> _showCustomAspectDialog() async {
+    final widthController = TextEditingController(text: '16');
+    final heightController = TextEditingController(text: '10');
+    final ratio = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('自定义画面比例'),
+          content: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: widthController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '宽'),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text('：'),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: heightController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '高'),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('取消')),
+            FilledButton(
+              onPressed: () {
+                final w = double.tryParse(widthController.text.trim());
+                final h = double.tryParse(heightController.text.trim());
+                if (w == null || h == null || w <= 0 || h <= 0) {
+                  Navigator.of(dialogContext).pop();
+                  _toast('比例填写有误');
+                  return;
+                }
+                Navigator.of(dialogContext).pop(w / h);
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ratio == null || !mounted) return;
+    setState(() {
+      _aspectOverride = ratio;
+      _aspectLabel = '自定义 ${ratio.toStringAsFixed(2)} : 1';
+    });
+  }
+
   @override
   void dispose() {
     _saveProgress();
     _hideTimer?.cancel();
     _saveTimer?.cancel();
+    _hudTimer?.cancel();
     _session++;
     _releaseController();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -434,27 +715,30 @@ class _PlayerPageState extends State<PlayerPage> {
         fit: StackFit.expand,
         children: [
           _buildVideo(),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _toggleControls,
-            onDoubleTapDown: (details) {
-              final width = MediaQuery.of(context).size.width;
-              final isLeft = details.localPosition.dx < width / 2;
-              _seekBy(Duration(seconds: isLeft ? -10 : 10));
-            },
+          Listener(
+            onPointerDown: _onPointerDown,
+            onPointerMove: _onPointerMove,
+            onPointerUp: _onPointerUp,
+            onPointerCancel: _onPointerUp,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _toggleControls,
+              onDoubleTap: _togglePlay,
+              onVerticalDragStart: _onVerticalDragStart,
+              onVerticalDragUpdate: _onVerticalDragUpdate,
+              onVerticalDragEnd: _onVerticalDragEnd,
+            ),
           ),
           if (_buffering && _error == null)
             Center(
               child: SizedBox(
                 width: 32,
                 height: 32,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  color: context.palette.textSecondary,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2.4, color: _kTextFaint),
               ),
             ),
           if (_error != null) _buildErrorOverlay(),
+          _buildHud(),
           AnimatedOpacity(
             opacity: _controlsVisible ? 1 : 0,
             duration: const Duration(milliseconds: 220),
@@ -473,10 +757,56 @@ class _PlayerPageState extends State<PlayerPage> {
     if (controller == null || !controller.value.isInitialized) {
       return const ColoredBox(color: Colors.black);
     }
+    final natural = controller.value.aspectRatio <= 0 ? 16 / 9 : controller.value.aspectRatio;
     return Center(
       child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio <= 0 ? 16 / 9 : controller.value.aspectRatio,
+        aspectRatio: _aspectOverride ?? natural,
         child: VideoPlayer(controller),
+      ),
+    );
+  }
+
+  Widget _buildHud() {
+    final text = _hudText;
+    final icon = _hudIcon;
+    if (text == null || icon == null) return const SizedBox.shrink();
+    final level = _hudLevel;
+    return IgnorePointer(
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xE6151A24),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0x33FFFFFF)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 26, color: _kText),
+              const SizedBox(height: 6),
+              Text(
+                text,
+                style: const TextStyle(fontSize: 13, color: _kText, fontWeight: FontWeight.w600),
+              ),
+              if (level != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: 120,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: level,
+                      minHeight: 4,
+                      backgroundColor: const Color(0x33FFFFFF),
+                      valueColor: const AlwaysStoppedAnimation<Color>(_kAccent),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -484,23 +814,23 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget _buildErrorOverlay() {
     return Positioned.fill(
       child: ColoredBox(
-        color: const Color(0xCC000000),
+        color: const Color(0xD9000000),
         child: Center(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.error_outline_rounded, size: 44, color: context.palette.textSecondary),
+                const Icon(Icons.error_outline_rounded, size: 44, color: _kTextFaint),
                 const SizedBox(height: 12),
-                const Text('播放失败', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                const Text('播放失败', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _kText)),
                 const SizedBox(height: 8),
                 Text(
                   _error!,
                   maxLines: 4,
                   textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
+                  style: const TextStyle(fontSize: 12, height: 1.5, color: _kTextDim),
                 ),
                 const SizedBox(height: 18),
                 Row(
@@ -508,11 +838,19 @@ class _PlayerPageState extends State<PlayerPage> {
                   children: [
                     OutlinedButton(
                       onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _kText,
+                        side: const BorderSide(color: Color(0x55FFFFFF)),
+                      ),
                       child: const Text('返回'),
                     ),
                     const SizedBox(width: 12),
                     FilledButton(
                       onPressed: () => _openCurrent(),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _kAccent,
+                        foregroundColor: Colors.black,
+                      ),
                       child: const Text('重试'),
                     ),
                   ],
@@ -537,7 +875,7 @@ class _PlayerPageState extends State<PlayerPage> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xCC000000), Colors.transparent],
+                colors: [Color(0xE6000000), Colors.transparent],
               ),
             ),
             child: SafeArea(
@@ -548,7 +886,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 22, color: _kText),
                     ),
                     Expanded(
                       child: Column(
@@ -559,14 +897,19 @@ class _PlayerPageState extends State<PlayerPage> {
                             widget.vodName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: _kText,
+                              shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             '${widget.episodes[_index].name} · ${widget.groupName}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
+                            style: const TextStyle(fontSize: 11, color: _kTextDim),
                           ),
                         ],
                       ),
@@ -574,7 +917,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     IconButton(
                       tooltip: '选集',
                       onPressed: _showEpisodes,
-                      icon: const Icon(Icons.playlist_play_rounded, size: 22),
+                      icon: const Icon(Icons.playlist_play_rounded, size: 24, color: _kText),
                     ),
                   ],
                 ),
@@ -591,7 +934,7 @@ class _PlayerPageState extends State<PlayerPage> {
               gradient: LinearGradient(
                 begin: Alignment.bottomCenter,
                 end: Alignment.topCenter,
-                colors: [Color(0xE6000000), Colors.transparent],
+                colors: [Color(0xF2000000), Colors.transparent],
               ),
             ),
             child: SafeArea(
@@ -607,13 +950,13 @@ class _PlayerPageState extends State<PlayerPage> {
                         const SizedBox(width: 4),
                         IconButton(
                           onPressed: _index > 0 ? () => _switchEpisode(_index - 1) : null,
-                          icon: const Icon(Icons.skip_previous_rounded, size: 22),
-                          color: context.palette.textPrimary,
-                          disabledColor: context.palette.textFaint,
+                          icon: const Icon(Icons.skip_previous_rounded, size: 24),
+                          color: _kText,
+                          disabledColor: _kTextFaint,
                         ),
                         IconButton(
-                          iconSize: 34,
-                          color: context.palette.textPrimary,
+                          iconSize: 38,
+                          color: _kText,
                           onPressed: _togglePlay,
                           icon: Icon(
                             _playing ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
@@ -623,9 +966,9 @@ class _PlayerPageState extends State<PlayerPage> {
                           onPressed: _index < widget.episodes.length - 1
                               ? () => _switchEpisode(_index + 1)
                               : null,
-                          icon: const Icon(Icons.skip_next_rounded, size: 22),
-                          color: context.palette.textPrimary,
-                          disabledColor: context.palette.textFaint,
+                          icon: const Icon(Icons.skip_next_rounded, size: 24),
+                          color: _kText,
+                          disabledColor: _kTextFaint,
                         ),
                         const Spacer(),
                         PopupMenuButton<double>(
@@ -643,22 +986,28 @@ class _PlayerPageState extends State<PlayerPage> {
                             PopupMenuItem(value: 1.25, child: Text('1.25×')),
                             PopupMenuItem(value: 1.5, child: Text('1.5×')),
                             PopupMenuItem(value: 2.0, child: Text('2.0×')),
+                            PopupMenuItem(value: 3.0, child: Text('3.0×')),
                           ],
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0x26FFFFFF),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                             child: Text(
                               '${_rate.toStringAsFixed(_rate == 1.0 ? 1 : 2)}×',
-                              style: TextStyle(fontSize: 13, color: context.palette.textSecondary),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: _kText,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
                         IconButton(
-                          tooltip: _fullscreen ? '退出全屏' : '全屏',
-                          onPressed: _toggleFullscreen,
-                          icon: Icon(
-                            _fullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-                            size: 24,
-                          ),
+                          tooltip: '画面比例：$_aspectLabel',
+                          onPressed: _showAspectSheet,
+                          icon: const Icon(Icons.aspect_ratio_rounded, size: 24, color: _kText),
                         ),
                       ],
                     ),
@@ -683,12 +1032,12 @@ class _PlayerPageState extends State<PlayerPage> {
       children: [
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            trackHeight: 2.4,
-            activeTrackColor: const Color(0xFF7FA6FF),
-            inactiveTrackColor: context.palette.textFaint,
-            thumbColor: context.palette.textPrimary,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            trackHeight: 3,
+            activeTrackColor: _kAccent,
+            inactiveTrackColor: const Color(0x4DFFFFFF),
+            thumbColor: _kText,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
           ),
           child: Slider(
             min: 0,
@@ -715,12 +1064,12 @@ class _PlayerPageState extends State<PlayerPage> {
             children: [
               Text(
                 _formatDuration(_dragging ? Duration(milliseconds: _dragValue.round()) : _position),
-                style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
+                style: const TextStyle(fontSize: 12, color: _kTextDim),
               ),
               const Spacer(),
               Text(
                 duration.inMilliseconds > 0 ? _formatDuration(duration) : '--:--',
-                style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
+                style: const TextStyle(fontSize: 12, color: _kTextDim),
               ),
             ],
           ),

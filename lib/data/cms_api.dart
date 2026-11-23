@@ -96,7 +96,11 @@ class CmsApi {
         }
       }
     }
-    return CmsIndex(categories: categories, videos: _parseList(map['list']));
+    final videos = _parseList(map['list']);
+    return CmsIndex(
+      categories: categories,
+      videos: await _fillMissingPics(apiUrl, videos),
+    );
   }
 
   Future<VodPage> fetchList(
@@ -109,7 +113,41 @@ class CmsApi {
       if (typeId.isNotEmpty) 't': typeId,
       'pg': page,
     });
-    return _pageOf(map);
+    final pageResult = _pageOf(map);
+    final videos = await _fillMissingPics(source.api, pageResult.videos);
+    return VodPage(
+      videos: videos,
+      page: pageResult.page,
+      pageCount: pageResult.pageCount,
+      total: pageResult.total,
+    );
+  }
+
+  /// 有些接口的 `ac=list` 不返回 `vod_pic`（例如 jyzyapi），首页就会一片空白。
+  /// 这种情况补一次批量详情（`ac=detail&ids=1,2,3`）把海报填回来。
+  Future<List<VodItem>> _fillMissingPics(String apiUrl, List<VodItem> videos) async {
+    if (videos.isEmpty) return videos;
+    final missing = videos.where((v) => v.pic.trim().isEmpty).toList(growable: false);
+    if (missing.isEmpty || missing.length < videos.length) return videos;
+    final ids = missing.map((v) => v.vodId).where((id) => id.isNotEmpty).take(30).toList();
+    if (ids.isEmpty) return videos;
+
+    Map<String, dynamic> map;
+    try {
+      map = await _request(apiUrl, {'ac': 'detail', 'ids': ids.join(',')});
+    } catch (_) {
+      return videos;
+    }
+    final detailed = _parseList(map['list']);
+    if (detailed.isEmpty) return videos;
+    final pics = <String, String>{};
+    for (final item in detailed) {
+      if (item.pic.trim().isNotEmpty) pics[item.vodId] = item.pic;
+    }
+    if (pics.isEmpty) return videos;
+    return videos
+        .map((v) => pics.containsKey(v.vodId) ? v.copyWith(pic: pics[v.vodId]!) : v)
+        .toList(growable: false);
   }
 
   Future<VodPage> search(CmsSource source, String keyword, {int page = 1}) async {

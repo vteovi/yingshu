@@ -50,5 +50,29 @@ List<PlaySourceGroup> parsePlayGroups(String playFrom, String playUrl) {
       groups.add(PlaySourceGroup(from: from, episodes: episodes));
     }
   }
-  return groups;
+
+  // 有些采集站第一路给的是网页播放页（`https://x.com/play/abcd`），
+  // 第二路才是真正的 m3u8。默认线路优先取能直接播的那一路。
+  final ranked = <PlaySourceGroup>[];
+  final mediaGroups = <PlaySourceGroup>[];
+  for (final group in groups) {
+    final playable = group.episodes.isNotEmpty && _looksPlayable(group.episodes.first.url);
+    if (playable) {
+      mediaGroups.add(group);
+    } else {
+      ranked.add(group);
+    }
+  }
+  return [...mediaGroups, ...ranked];
+}
+
+/// 粗判：地址看起来像视频流 / 直链（网页播放页不算，但播放器侧会再兜底解析）。
+bool _looksPlayable(String url) {
+  final lower = url.toLowerCase();
+  return lower.contains('.m3u8') ||
+      lower.contains('.mp4') ||
+      lower.contains('.flv') ||
+      lower.contains('.ts') ||
+      lower.contains('.mkv') ||
+      lower.contains('/index.m3u8');
 }
