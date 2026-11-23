@@ -151,7 +151,7 @@ class SettingsPage extends StatelessWidget {
                 subtitle: Text(
                   app.posterLayout == PosterLayout.actual
                       ? '「原始比例」模式下不生效：瀑布流本身按图片自身比例排，叠横版卡片会互相冲突'
-                      : '海报改横版（图上文下），列数与竖向海报一致，切过来时一屏内容量不变',
+                      : '海报改横版（图上文下）：列数按一屏条目数量和竖向海报对齐，不用再单独调海报大小',
                   style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
                 ),
                 value: app.landscapeCard && app.posterLayout == PosterLayout.grid,

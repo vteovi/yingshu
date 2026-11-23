@@ -55,18 +55,41 @@ SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
 
 /// 横版网格：16:10 封面 + 图下一行文字。
 ///
-/// 列数与同档位的竖版网格保持一致：这样「小 / 中 / 大」在两套排布下
-/// 一屏能看到的条目数量接近，切换横版卡片时不用再单独调海报大小。
+/// 列数不是硬跟竖版对齐（那样横版卡片会变得很窄、很难看），而是按
+/// 「一屏能看到的条目数量」来选：拿每个候选列数算出卡片高度，再看
+/// 列数 ÷ 卡片行距，挑跟竖版最接近的那个。手机上是典型的结果是
+/// 小=2 列、中/大=1 列，画面更大气，一屏条目数又和竖版差不多。
 SliverGridDelegate _landscapeDelegate(double maxWidth, PosterSize size) {
   const double caption = 44;
+  const double rowPitch = 16;
   final available = maxWidth - _horizontalPadding * 2;
-  final columns = (available / _targetTileWidth(size, maxWidth)).floor().clamp(1, 8);
+
+  // 竖版作为参照：一屏内每 dp 高度能露出多少条
+  final portraitColumns = (available / _targetTileWidth(size, maxWidth)).floor().clamp(1, 10);
+  final portraitWidth = (available - _spacing * (portraitColumns - 1)) / portraitColumns;
+  final portraitHeight = portraitWidth * 1.5 + 44;
+  final portraitDensity = portraitColumns / (portraitHeight + rowPitch);
+
+  int bestColumns = 1;
+  double bestDiff = double.infinity;
+  final maxColumns = portraitColumns.clamp(1, 3);
+  for (var columns = 1; columns <= maxColumns; columns++) {
+    final tileWidth = (available - _spacing * (columns - 1)) / columns;
+    final cardHeight = tileWidth / (16 / 10) + caption;
+    final density = columns / (cardHeight + rowPitch);
+    final diff = (density - portraitDensity).abs() / portraitDensity;
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestColumns = columns;
+    }
+  }
+
+  final columns = bestColumns;
   final tileWidth = (available - _spacing * (columns - 1)) / columns;
-  final coverHeight = tileWidth / (16 / 10);
-  final cardHeight = coverHeight + caption;
+  final cardHeight = tileWidth / (16 / 10) + caption;
   return SliverGridDelegateWithFixedCrossAxisCount(
     crossAxisCount: columns,
-    mainAxisSpacing: 16,
+    mainAxisSpacing: rowPitch,
     crossAxisSpacing: _spacing,
     mainAxisExtent: cardHeight,
   );
