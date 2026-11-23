@@ -39,13 +39,21 @@ double _targetTileWidth(PosterSize size, double maxWidth) {
   return base * _wideScale(maxWidth);
 }
 
-/// 一套网格的落位参数：几列、每格多宽、每格多高。
+/// 一套网格的落位参数：几列、每格多宽、每格多高、封面宽高比。
 class VodGridSpec {
-  const VodGridSpec({required this.columns, required this.width, required this.extent});
+  const VodGridSpec({
+    required this.columns,
+    required this.width,
+    required this.extent,
+    required this.aspect,
+  });
 
   final int columns;
   final double width;
   final double extent;
+
+  /// 横版封面的宽高比（竖版固定 2:3）。
+  final double aspect;
 }
 
 /// 计算当前宽高/档位/排布下的网格规格。
@@ -73,28 +81,26 @@ VodGridSpec vodGridSpec({
       columns: portraitColumns,
       width: width,
       extent: width * 1.5 + caption,
+      aspect: 2 / 3,
     );
   }
 
   // 横版：按档位给一个「目标宽度」，再由可用宽度反推列数。
-  // 不能像以前那样只按一屏密度挑列数——手机上「中」「大」都会落到 1 列，
-  // 宽度被可用宽度吃满，两档看起来就一模一样了。
+  // 手机上「中」「大」都会落到 1 列，这时候不再把卡片缩窄居中（那样两边会留黑边），
+  // 而是铺满可用宽度，靠封面画幅区分：中 16:10，大 4:3（卡片更高，一眼能看出区别）。
   final landscapeTarget = switch (size) {
     PosterSize.small => 128.0,
     PosterSize.medium => 200.0,
     PosterSize.large => 300.0,
   } * _wideScale(maxWidth);
   final columns = (available / landscapeTarget).floor().clamp(1, 4);
-  var width = (available - _spacing * (columns - 1)) / columns;
-  if (columns == 1) {
-    // 单列限宽，避免「中」和「大」都变成整屏宽度
-    final cap = landscapeTarget * 1.35;
-    if (width > cap) width = cap;
-  }
+  final width = (available - _spacing * (columns - 1)) / columns;
+  final aspect = (columns == 1 && size == PosterSize.large) ? 4 / 3 : 16 / 10;
   return VodGridSpec(
     columns: columns,
     width: width,
-    extent: width / (16 / 10) + 44,
+    extent: width / aspect + 44,
+    aspect: aspect,
   );
 }
 
@@ -109,7 +115,7 @@ SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
   );
 }
 
-/// 横版网格：16:10 封面 + 图下一行文字，列数按一屏条目密度挑。
+/// 横版网格：16:10（单列大档 4:3）封面 + 图下一行文字，列数按档位目标宽度算。
 SliverGridDelegate _landscapeDelegate(double maxWidth, PosterSize size) {
   final spec = vodGridSpec(maxWidth: maxWidth, size: size, landscape: true);
   return SliverGridDelegateWithFixedCrossAxisCount(
