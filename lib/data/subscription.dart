@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../core/constants.dart';
 import '../models/cms_source.dart';
 import 'tvbox_config.dart';
 
@@ -16,6 +17,9 @@ class SubscriptionFetcher {
             ));
 
   final Dio _dio;
+
+  /// 下载订阅配置时使用的 UA，跟随设置页里的「请求 User-Agent」。
+  String userAgent = kDefaultUserAgent;
 
   /// 最大嵌套层数：TVBox 的 urls 常常指向另一个配置。
   static const int maxDepth = 3;
@@ -60,7 +64,9 @@ class SubscriptionFetcher {
       url,
       options: Options(
         responseType: ResponseType.plain,
-        headers: const {'User-Agent': 'okhttp/3.12.11'},
+        headers: {
+          'User-Agent': userAgent.trim().isEmpty ? kDefaultUserAgent : userAgent.trim(),
+        },
       ),
     );
     return response.data ?? '';

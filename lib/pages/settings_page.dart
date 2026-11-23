@@ -54,12 +54,12 @@ class SettingsPage extends StatelessWidget {
           _Card(
             children: [
               _ThemeTile(
-                mode: ThemeMode.dark,
-                icon: Icons.dark_mode_outlined,
-                title: '深色（OLED 纯黑）',
-                subtitle: '背景与卡片都是 #000000，屏幕像素不发光，最省电',
+                mode: ThemeMode.system,
+                icon: Icons.brightness_auto_outlined,
+                title: '跟随系统',
+                subtitle: '系统切换深色/浅色时自动跟随（默认）',
                 current: app.themeMode,
-                onTap: () => app.setThemeMode(ThemeMode.dark),
+                onTap: () => app.setThemeMode(ThemeMode.system),
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
               _ThemeTile(
@@ -72,12 +72,12 @@ class SettingsPage extends StatelessWidget {
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
               _ThemeTile(
-                mode: ThemeMode.system,
-                icon: Icons.brightness_auto_outlined,
-                title: '跟随系统',
-                subtitle: '系统切换深色/浅色时自动跟随',
+                mode: ThemeMode.dark,
+                icon: Icons.dark_mode_outlined,
+                title: '深色（OLED 纯黑）',
+                subtitle: '背景与卡片都是 #000000，屏幕像素不发光，最省电',
                 current: app.themeMode,
-                onTap: () => app.setThemeMode(ThemeMode.system),
+                onTap: () => app.setThemeMode(ThemeMode.dark),
               ),
             ],
           ),
@@ -189,10 +189,61 @@ class SettingsPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('请求 User-Agent'),
-        content: TextField(
-          controller: controller,
-          maxLines: 3,
-          decoration: const InputDecoration(hintText: '留空则恢复默认 UA'),
+        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '可直接编辑下方文本，也可点选一个内置预设后保存。'
+                '部分源会按 UA 返回不同内容，切换后建议重新拉取首页。',
+                style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final preset in kUserAgentPresets)
+                    ActionChip(
+                      label: Text(preset.label),
+                      avatar: const Icon(Icons.bolt_outlined, size: 14),
+                      onPressed: () {
+                        controller.text = preset.value;
+                        controller.selection = TextSelection.collapsed(
+                          offset: controller.text.length,
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                minLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'User-Agent',
+                  hintText: '留空则恢复默认 UA',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    controller.text = kDefaultUserAgent;
+                    controller.selection = TextSelection.collapsed(
+                      offset: controller.text.length,
+                    );
+                  },
+                  icon: const Icon(Icons.restart_alt, size: 16),
+                  label: const Text('恢复默认'),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

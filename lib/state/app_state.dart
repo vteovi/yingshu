@@ -25,7 +25,7 @@ class AppState extends ChangeNotifier {
   String _userAgent = kDefaultUserAgent;
   bool _autoPlayNext = true;
   bool _rememberProgress = true;
-  ThemeMode _themeMode = ThemeMode.dark;
+  ThemeMode _themeMode = ThemeMode.system;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
@@ -81,6 +81,7 @@ class AppState extends ChangeNotifier {
         settings['rememberProgress'] is bool ? settings['rememberProgress'] as bool : true;
     _themeMode = _parseThemeMode(settings['themeMode']);
     _api.userAgent = _userAgent;
+    _fetcher.userAgent = _userAgent;
 
     notifyListeners();
   }
@@ -89,10 +90,12 @@ class AppState extends ChangeNotifier {
     switch (raw?.toString()) {
       case 'light':
         return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
       case 'system':
         return ThemeMode.system;
       default:
-        return ThemeMode.dark;
+        return ThemeMode.system;
     }
   }
 
@@ -315,6 +318,7 @@ class AppState extends ChangeNotifier {
   Future<void> setUserAgent(String value) async {
     _userAgent = value.trim().isEmpty ? kDefaultUserAgent : value.trim();
     _api.userAgent = _userAgent;
+    _fetcher.userAgent = _userAgent;
     await _persistSettings();
     notifyListeners();
   }
