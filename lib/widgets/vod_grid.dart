@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -185,11 +184,10 @@ class PosterRatioStore extends ChangeNotifier {
 /// 解析一次图片尺寸，把宽高比写进 [PosterRatioStore]。
 void probePosterRatio(BuildContext context, String url, String? api) {
   if (url.isEmpty || PosterRatioStore.instance.ratioOf(url) != null) return;
-  final provider = CachedNetworkImageProvider(
+  final provider = PosterImageProvider(
     url,
-    cacheManager: PosterCacheManager.instance,
     headers: imageHeadersFor(api),
-    maxWidth: 480,
+    width: 480,
   );
   final stream = provider.resolve(createLocalImageConfiguration(context));
   late ImageStreamListener listener;

@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -240,13 +239,15 @@ class _DetailPageState extends State<DetailPage> {
         fit: StackFit.expand,
         children: [
           if (pic.isNotEmpty)
-            CachedNetworkImage(
-              imageUrl: pic,
-              cacheManager: PosterCacheManager.instance,
-              httpHeaders: imageHeadersFor(widget.source.api),
+            Image(
+              image: PosterImageProvider(
+                pic,
+                headers: imageHeadersFor(widget.source.api),
+                width: 900,
+              ),
               fit: BoxFit.cover,
-              placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
-              errorWidget: (_, __, ___) => ColoredBox(color: context.palette.surfaceHigh),
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => ColoredBox(color: context.palette.surfaceHigh),
             )
           else
             ColoredBox(color: context.palette.surfaceHigh),

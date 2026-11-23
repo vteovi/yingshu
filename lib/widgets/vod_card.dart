@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/image_cache.dart';
@@ -142,11 +141,10 @@ class _Poster extends StatelessWidget {
     // 用 ImageProvider 而不是 CachedNetworkImage：解码结果会进 Flutter 内存缓存，
     // 切标签/返回上一页时同一张海报直接命中，不会先闪一下空白再淡入。
     return Image(
-      image: CachedNetworkImageProvider(
+      image: PosterImageProvider(
         url,
-        cacheManager: PosterCacheManager.instance,
         headers: imageHeadersFor(apiBase),
-        maxWidth: 480,
+        width: 480,
       ),
       fit: BoxFit.cover,
       gaplessPlayback: true,

@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -548,13 +547,15 @@ class _SearchResultTile extends StatelessWidget {
                           color: context.palette.surfaceHigh,
                           child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
                         )
-                      : CachedNetworkImage(
-                          imageUrl: normalizeImageUrl(vod.pic, api: hit.source.api),
-                          cacheManager: PosterCacheManager.instance,
-                          httpHeaders: imageHeadersFor(hit.source.api),
+                      : Image(
+                          image: PosterImageProvider(
+                            normalizeImageUrl(vod.pic, api: hit.source.api),
+                            headers: imageHeadersFor(hit.source.api),
+                            width: thumb.width.round(),
+                          ),
                           fit: BoxFit.cover,
-                          placeholder: (_, __) => ColoredBox(color: context.palette.surfaceHigh),
-                          errorWidget: (_, __, ___) => ColoredBox(
+                          gaplessPlayback: true,
+                          errorBuilder: (_, __, ___) => ColoredBox(
                             color: context.palette.surfaceHigh,
                             child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
                           ),
