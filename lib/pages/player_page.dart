@@ -577,7 +577,7 @@ class _PlayerPageState extends State<PlayerPage> {
                               ),
                         title: Text(
                           episode.name,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,

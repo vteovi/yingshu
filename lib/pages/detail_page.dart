@@ -580,24 +580,27 @@ class _EpisodeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      width: 78,
-      height: 38,
+    // 不再写死 78×38：短标签保持原来的小方块观感，长标签（“第12集 大结局”这类）
+    // 会自动变宽、最多折两行，不会再被截成省略号。
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 78, maxWidth: 168, minHeight: 38),
       child: Material(
         color: highlight ? theme.colorScheme.primary.withOpacity(0.22) : context.palette.surfaceHigh,
         borderRadius: BorderRadius.circular(9),
         child: InkWell(
           borderRadius: BorderRadius.circular(9),
           onTap: onTap,
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Center(
               child: Text(
                 label,
-                maxLines: 1,
+                maxLines: 2,
+                textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
+                  height: 1.3,
                   color: highlight ? context.palette.textPrimary : context.palette.textSecondary,
                   fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
                 ),
