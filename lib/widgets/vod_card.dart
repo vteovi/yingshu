@@ -81,37 +81,38 @@ class VodCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            vod.name,
-            maxLines: landscape ? 1 : 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.25,
-              fontWeight: FontWeight.w500,
-              color: context.palette.textPrimary,
+          // 文字区固定高度：标题一行还是两行都一样，海报底边才能对齐，
+          // 不然一屏里有的卡多出一行字、有的少一行，看起来就不规整。
+          SizedBox(
+            height: landscape ? 18 : 32,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  vod.name,
+                  maxLines: (landscape || footer != null) ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.2,
+                    fontWeight: FontWeight.w500,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                if (footer != null && footer!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      footer!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.secondary),
+                    ),
+                  ),
+              ],
             ),
           ),
-          if (footer != null && footer!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(
-                footer!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: theme.colorScheme.secondary),
-              ),
-            )
-          else if (landscape && vod.remarks.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(
-                vod.remarks,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: context.palette.textFaint),
-              ),
-            ),
         ],
       ),
     );

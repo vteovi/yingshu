@@ -43,6 +43,11 @@ class FavoritesPage extends StatelessWidget {
 
                 return LayoutBuilder(
                   builder: (context, constraints) {
+                    final spec = vodGridSpec(
+                      maxWidth: constraints.maxWidth,
+                      size: posterSize,
+                      landscape: landscape,
+                    );
                     return GridView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                       gridDelegate: vodGridDelegate(
@@ -53,17 +58,20 @@ class FavoritesPage extends StatelessWidget {
                       itemCount: favorites.length,
                       itemBuilder: (context, i) {
                         final item = favorites[i];
-                        return VodCard(
-                          vod: VodItem(
-                            vodId: item.vodId,
-                            name: item.name,
-                            pic: item.pic,
-                            remarks: item.remarks,
+                        return VodCell(
+                          width: spec.width,
+                          child: VodCard(
+                            vod: VodItem(
+                              vodId: item.vodId,
+                              name: item.name,
+                              pic: item.pic,
+                              remarks: item.remarks,
+                            ),
+                            landscape: landscape,
+                            footer: item.sourceName,
+                            onTap: () => _openDetail(context, app, item),
+                            onLongPress: () => _confirmRemove(context, app, item),
                           ),
-                          landscape: landscape,
-                          footer: item.sourceName,
-                          onTap: () => _openDetail(context, app, item),
-                          onLongPress: () => _confirmRemove(context, app, item),
                         );
                       },
                     );

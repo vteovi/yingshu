@@ -52,29 +52,39 @@ class HistoryPage extends StatelessWidget {
 
                 if (landscape) {
                   return LayoutBuilder(
-                    builder: (context, constraints) => GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                      gridDelegate: vodGridDelegate(
+                    builder: (context, constraints) {
+                      final spec = vodGridSpec(
                         maxWidth: constraints.maxWidth,
                         size: posterSize,
                         landscape: true,
-                      ),
-                      itemCount: history.length,
-                      itemBuilder: (context, i) {
-                        final item = history[i];
-                        return VodCard(
-                          vod: VodItem(
-                            vodId: item.vodId,
-                            name: item.name,
-                            pic: item.pic,
-                          ),
+                      );
+                      return GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                        gridDelegate: vodGridDelegate(
+                          maxWidth: constraints.maxWidth,
+                          size: posterSize,
                           landscape: true,
-                          footer: _historyFooter(item),
-                          onTap: () => _resume(context, app, item),
-                          onLongPress: () => app.removeHistory(item.sourceId, item.vodId),
-                        );
-                      },
-                    ),
+                        ),
+                        itemCount: history.length,
+                        itemBuilder: (context, i) {
+                          final item = history[i];
+                          return VodCell(
+                            width: spec.width,
+                            child: VodCard(
+                              vod: VodItem(
+                                vodId: item.vodId,
+                                name: item.name,
+                                pic: item.pic,
+                              ),
+                              landscape: true,
+                              footer: _historyFooter(item),
+                              onTap: () => _resume(context, app, item),
+                              onLongPress: () => app.removeHistory(item.sourceId, item.vodId),
+                            ),
+                          );
+                        },
+                      );
+                    },
                   );
                 }
 

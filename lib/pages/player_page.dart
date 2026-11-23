@@ -10,6 +10,7 @@ import 'package:volume_controller/volume_controller.dart';
 
 import '../core/constants.dart';
 import '../core/hls_probe.dart';
+import '../core/pip.dart';
 import '../core/play_resolver.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
@@ -99,6 +100,10 @@ class _PlayerPageState extends State<PlayerPage> {
   double? _aspectOverride;
   String _aspectLabel = '自适应';
 
+  // ---------------------------------------------------------------- 画中画
+  bool _pipSupported = false;
+  bool _inPip = false;
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +113,21 @@ class _PlayerPageState extends State<PlayerPage> {
     _openCurrent(seekTo: widget.initialPosition);
     _scheduleHide();
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) => _saveProgress());
+    _setupPip();
+  }
+
+  Future<void> _setupPip() async {
+    Pip.listen((inPip) {
+      if (!mounted) return;
+      setState(() {
+        _inPip = inPip;
+        if (inPip) _controlsVisible = false;
+      });
+      if (inPip) _hideTimer?.cancel();
+    });
+    final supported = await Pip.isSupported();
+    if (!mounted) return;
+    setState(() => _pipSupported = supported);
   }
 
   @override
@@ -654,6 +674,25 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 系统级画中画：整页缩成小窗，可以边看边干别的。
+  Future<void> _enterPip() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      _toast('还没开始播放');
+      return;
+    }
+    final natural = controller.value.aspectRatio;
+    final ratio = _aspectOverride ?? (natural > 0 ? natural : 16 / 9);
+    final ok = await Pip.enter(aspectRatio: ratio);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _controlsVisible = false);
+      _hideTimer?.cancel();
+    } else {
+      _toast('当前系统不支持画中画');
+    }
+  }
+
   void _showAspectSheet() {
     _hideTimer?.cancel();
     setState(() => _controlsVisible = true);
@@ -741,8 +780,9 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _showCustomAspectDialog() async {
-    final widthController = TextEditingController(text: '16');
-    final heightController = TextEditingController(text: '10');
+    // 不再预填 16 / 10：打开就是要用户自己填，空着更好输入
+    final widthController = TextEditingController();
+    final heightController = TextEditingController();
     final ratio = await showDialog<double>(
       context: context,
       builder: (dialogContext) {
@@ -753,8 +793,13 @@ class _PlayerPageState extends State<PlayerPage> {
               Expanded(
                 child: TextField(
                   controller: widthController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '宽'),
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: '宽',
+                    hintText: '如 2.35',
+                  ),
                 ),
               ),
               const Padding(
@@ -764,8 +809,22 @@ class _PlayerPageState extends State<PlayerPage> {
               Expanded(
                 child: TextField(
                   controller: heightController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '高'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    labelText: '高',
+                    hintText: '如 1',
+                  ),
+                  onSubmitted: (_) {
+                    final w = double.tryParse(widthController.text.trim());
+                    final h = double.tryParse(heightController.text.trim());
+                    if (w == null || h == null || w <= 0 || h <= 0) {
+                      Navigator.of(dialogContext).pop();
+                      _toast('比例填写有误');
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(w / h);
+                  },
                 ),
               ),
             ],
@@ -795,6 +854,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   void dispose() {
+    Pip.clearListener();
     _saveProgress();
     _hideTimer?.cancel();
     _saveTimer?.cancel();
@@ -839,15 +899,17 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           if (_error != null) _buildErrorOverlay(),
-          _buildHud(),
-          AnimatedOpacity(
-            opacity: _controlsVisible ? 1 : 0,
-            duration: const Duration(milliseconds: 220),
-            child: IgnorePointer(
-              ignoring: !_controlsVisible,
-              child: _buildControls(),
+          if (!_inPip) ...[
+            _buildHud(),
+            AnimatedOpacity(
+              opacity: _controlsVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 220),
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: _buildControls(),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1110,6 +1172,16 @@ class _PlayerPageState extends State<PlayerPage> {
                           onPressed: _showAspectSheet,
                           icon: const Icon(Icons.aspect_ratio_rounded, size: 24, color: _kText),
                         ),
+                        if (_pipSupported)
+                          IconButton(
+                            tooltip: '画中画',
+                            onPressed: _enterPip,
+                            icon: const Icon(
+                              Icons.picture_in_picture_alt_rounded,
+                              size: 24,
+                              color: _kText,
+                            ),
+                          ),
                       ],
                     ),
                   ],

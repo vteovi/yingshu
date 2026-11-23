@@ -28,71 +28,115 @@ double _wideScale(double maxWidth) {
 
 /// 每张竖版海报的目标宽度（单位 dp），按海报大小分档。
 ///
-/// 列数是「可用宽度 ÷ 目标宽度」取整，所以同一个档位在手机上列少、在平板上列多。
+/// 三档的间距收窄过：原来是 104 / 158 / 232，手机上「大」会直接铺满整屏，
+/// 和小档差得太远；现在 104 / 142 / 186，差距更均匀。
 double _targetTileWidth(PosterSize size, double maxWidth) {
   final base = switch (size) {
     PosterSize.small => 104.0,
-    PosterSize.medium => 158.0,
-    PosterSize.large => 232.0,
+    PosterSize.medium => 142.0,
+    PosterSize.large => 186.0,
   };
   return base * _wideScale(maxWidth);
 }
 
-/// 竖版网格：2:3 海报，列数随宽度与海报大小自适应。
-SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
-  final available = maxWidth - _horizontalPadding * 2;
-  final target = _targetTileWidth(size, maxWidth);
-  final columns = (available / target).floor().clamp(1, 10);
-  final itemWidth = (available - _spacing * (columns - 1)) / columns;
-  final itemHeight = itemWidth * 1.5 + 44;
-  return SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: columns,
-    mainAxisSpacing: 16,
-    crossAxisSpacing: _spacing,
-    mainAxisExtent: itemHeight,
-  );
+/// 一套网格的落位参数：几列、每格多宽、每格多高。
+class VodGridSpec {
+  const VodGridSpec({required this.columns, required this.width, required this.extent});
+
+  final int columns;
+  final double width;
+  final double extent;
 }
 
-/// 横版网格：16:10 封面 + 图下一行文字。
+/// 计算当前宽高/档位/排布下的网格规格。
 ///
-/// 列数不是硬跟竖版对齐（那样横版卡片会变得很窄、很难看），而是按
-/// 「一屏能看到的条目数量」来选：拿每个候选列数算出卡片高度，再看
-/// 列数 ÷ 卡片行距，挑跟竖版最接近的那个。手机上是典型的结果是
-/// 小=2 列、中/大=1 列，画面更大气，一屏条目数又和竖版差不多。
-SliverGridDelegate _landscapeDelegate(double maxWidth, PosterSize size) {
-  const double caption = 44;
+/// 竖版只有一列时（「大」档）不再让海报铺满整屏，而是限宽居中，
+/// 否则三档尺寸差得离谱、看起来也不规整。
+VodGridSpec vodGridSpec({
+  required double maxWidth,
+  required PosterSize size,
+  required bool landscape,
+}) {
+  const double caption = 46;
   const double rowPitch = 16;
   final available = maxWidth - _horizontalPadding * 2;
 
-  // 竖版作为参照：一屏内每 dp 高度能露出多少条
   final portraitColumns = (available / _targetTileWidth(size, maxWidth)).floor().clamp(1, 10);
   final portraitWidth = (available - _spacing * (portraitColumns - 1)) / portraitColumns;
-  final portraitHeight = portraitWidth * 1.5 + 44;
-  final portraitDensity = portraitColumns / (portraitHeight + rowPitch);
+  final portraitHeight = portraitWidth * 1.5 + caption;
 
+  if (!landscape) {
+    var width = portraitWidth;
+    if (portraitColumns == 1) {
+      // 单列时把卡片宽度收在有线范围内，最多比目标宽度宽 35%
+      final cap = _targetTileWidth(size, maxWidth) * 1.35;
+      if (width > cap) width = cap;
+    }
+    return VodGridSpec(
+      columns: portraitColumns,
+      width: width,
+      extent: width * 1.5 + caption,
+    );
+  }
+
+  // 横版：列数按「一屏条目密度」挑，最多 3 列，保证卡片够大够好看
+  final portraitDensity = portraitColumns / (portraitHeight + rowPitch);
   int bestColumns = 1;
   double bestDiff = double.infinity;
   final maxColumns = portraitColumns.clamp(1, 3);
   for (var columns = 1; columns <= maxColumns; columns++) {
-    final tileWidth = (available - _spacing * (columns - 1)) / columns;
-    final cardHeight = tileWidth / (16 / 10) + caption;
-    final density = columns / (cardHeight + rowPitch);
-    final diff = (density - portraitDensity).abs() / portraitDensity;
+    final width = (available - _spacing * (columns - 1)) / columns;
+    final height = width / (16 / 10) + 44;
+    final diff = ((columns / (height + rowPitch)) - portraitDensity).abs() / portraitDensity;
     if (diff < bestDiff) {
       bestDiff = diff;
       bestColumns = columns;
     }
   }
-
-  final columns = bestColumns;
-  final tileWidth = (available - _spacing * (columns - 1)) / columns;
-  final cardHeight = tileWidth / (16 / 10) + caption;
-  return SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: columns,
-    mainAxisSpacing: rowPitch,
-    crossAxisSpacing: _spacing,
-    mainAxisExtent: cardHeight,
+  final width = (available - _spacing * (bestColumns - 1)) / bestColumns;
+  return VodGridSpec(
+    columns: bestColumns,
+    width: width,
+    extent: width / (16 / 10) + 44,
   );
+}
+
+/// 竖版网格：2:3 海报，列数随宽度与海报大小自适应。
+SliverGridDelegate _portraitDelegate(double maxWidth, PosterSize size) {
+  final spec = vodGridSpec(maxWidth: maxWidth, size: size, landscape: false);
+  return SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: spec.columns,
+    mainAxisSpacing: 16,
+    crossAxisSpacing: _spacing,
+    mainAxisExtent: spec.extent,
+  );
+}
+
+/// 横版网格：16:10 封面 + 图下一行文字，列数按一屏条目密度挑。
+SliverGridDelegate _landscapeDelegate(double maxWidth, PosterSize size) {
+  final spec = vodGridSpec(maxWidth: maxWidth, size: size, landscape: true);
+  return SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: spec.columns,
+    mainAxisSpacing: 16,
+    crossAxisSpacing: _spacing,
+    mainAxisExtent: spec.extent,
+  );
+}
+
+/// 把卡片放进网格格子里。单列限宽时用它在格子内水平居中。
+class VodCell extends StatelessWidget {
+  const VodCell({super.key, required this.width, required this.child});
+
+  final double width;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: SizedBox(width: width, child: child),
+    );
+  }
 }
 
 /// 按当前设置选网格代理。收藏 / 历史页复用同一套，保证三处排版一致。
@@ -295,7 +339,11 @@ class VodGridView extends StatelessWidget {
 
     final content = LayoutBuilder(
       builder: (context, constraints) {
-        final delegate = _delegateFor(constraints.maxWidth, posterSize, landscape);
+        final spec = vodGridSpec(
+          maxWidth: constraints.maxWidth,
+          size: posterSize,
+          landscape: landscape,
+        );
         final footer = SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(_horizontalPadding, 8, _horizontalPadding, 24),
@@ -331,21 +379,24 @@ class VodGridView extends StatelessWidget {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(_horizontalPadding, 10, _horizontalPadding, 4),
               sliver: SliverGrid(
-                gridDelegate: delegate,
+                gridDelegate: _delegateFor(constraints.maxWidth, posterSize, landscape),
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final vod = videos[i];
-                    return VodCard(
-                      vod: vod,
-                      apiBase: source.api,
-                      landscape: landscape,
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => DetailPage(
-                            source: source,
-                            vodId: vod.vodId,
-                            initialName: vod.name,
-                            initialPic: vod.pic,
+                    return VodCell(
+                      width: spec.width,
+                      child: VodCard(
+                        vod: vod,
+                        apiBase: source.api,
+                        landscape: landscape,
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => DetailPage(
+                              source: source,
+                              vodId: vod.vodId,
+                              initialName: vod.name,
+                              initialPic: vod.pic,
+                            ),
                           ),
                         ),
                       ),
@@ -487,7 +538,11 @@ class _VodPagedGridState extends State<VodPagedGrid>
           return const EmptyView(title: '这个分类还没有内容', icon: Icons.inbox_outlined);
         }
 
-        final delegate = _delegateFor(constraints.maxWidth, posterSize, landscape);
+        final spec = vodGridSpec(
+          maxWidth: constraints.maxWidth,
+          size: posterSize,
+          landscape: landscape,
+        );
 
         return CustomScrollView(
           controller: _controller,
@@ -506,21 +561,24 @@ class _VodPagedGridState extends State<VodPagedGrid>
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(_horizontalPadding, 12, _horizontalPadding, 8),
                 sliver: SliverGrid(
-                  gridDelegate: delegate,
+                  gridDelegate: _delegateFor(constraints.maxWidth, posterSize, landscape),
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
                       final vod = _items[i];
-                      return VodCard(
-                        vod: vod,
-                        apiBase: widget.source.api,
-                        landscape: landscape,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => DetailPage(
-                              source: widget.source,
-                              vodId: vod.vodId,
-                              initialName: vod.name,
-                              initialPic: vod.pic,
+                      return VodCell(
+                        width: spec.width,
+                        child: VodCard(
+                          vod: vod,
+                          apiBase: widget.source.api,
+                          landscape: landscape,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => DetailPage(
+                                source: widget.source,
+                                vodId: vod.vodId,
+                                initialName: vod.name,
+                                initialPic: vod.pic,
+                              ),
                             ),
                           ),
                         ),
