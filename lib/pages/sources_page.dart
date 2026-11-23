@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -47,6 +48,12 @@ class SourcesPage extends StatelessWidget {
                 case 'copy':
                   _copyConfig(context, app);
                   break;
+                case 'clear':
+                  _clearUnavailable(context, app);
+                  break;
+                case 'export':
+                  _exportSources(context, app);
+                  break;
               }
             },
             itemBuilder: (context) => const [
@@ -55,6 +62,9 @@ class SourcesPage extends StatelessWidget {
               PopupMenuItem(value: 'file', child: Text('从本地 JSON 文件导入')),
               PopupMenuDivider(),
               PopupMenuItem(value: 'copy', child: Text('复制源配置（JSON）')),
+              PopupMenuItem(value: 'export', child: Text('导出全部源（JSON 文件）')),
+              PopupMenuDivider(),
+              PopupMenuItem(value: 'clear', child: Text('清理失效源')),
             ],
           ),
         ],
@@ -308,6 +318,132 @@ class SourcesPage extends StatelessWidget {
     await Clipboard.setData(ClipboardData(text: data));
     if (!context.mounted) return;
     _snack(context, '已复制 ${app.sources.length} 个源的配置到剪贴板');
+  }
+
+  /// 导出全部源：优先弹系统保存对话框写 JSON 文件；
+  /// 平台不支持保存位置时（比如部分安卓机型）退回到可复制的文本框。
+  Future<void> _exportSources(BuildContext context, AppState app) async {
+    if (app.sources.isEmpty) {
+      _snack(context, '还没有订阅源可导出');
+      return;
+    }
+    final data = jsonEncode(app.sources.map((s) => s.toJson()).toList());
+    final name = 'yingshu-sources-${DateTime.now().millisecondsSinceEpoch}.json';
+
+    String? savedPath;
+    try {
+      final location = await getSaveLocation(
+        suggestedName: name,
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'JSON 文件', extensions: <String>['json']),
+        ],
+      );
+      if (location != null) {
+        await File(location.path).writeAsString(data);
+        savedPath = location.path;
+      }
+    } catch (_) {
+      savedPath = null;
+    }
+
+    if (!context.mounted) return;
+    if (savedPath != null) {
+      _snack(context, '已导出 ${app.sources.length} 个源到 $savedPath');
+      return;
+    }
+    await _showExportFallback(context, app, data);
+  }
+
+  Future<void> _showExportFallback(BuildContext context, AppState app, String data) async {
+    var copied = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('导出 ${app.sources.length} 个源'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '当前设备不支持直接另存文件，可以复制下面的 JSON 自行保存。',
+                style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+              ),
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    data,
+                    style: const TextStyle(fontSize: 11, height: 1.35, fontFamily: 'monospace'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: data));
+              copied = true;
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: const Text('复制 JSON'),
+          ),
+        ],
+      ),
+    );
+    if (!context.mounted || !copied) return;
+    _snack(context, '已复制 ${app.sources.length} 个源的 JSON');
+  }
+
+  /// 清理失效源：删掉检测结果为「不可用」的源，其它源不动。
+  Future<void> _clearUnavailable(BuildContext context, AppState app) async {
+    final bad = app.sources
+        .where((s) => app.healthOf(s.id).isUnavailable)
+        .toList(growable: false);
+    if (bad.isEmpty) {
+      _snack(context, '没有检测到失效源，先点右上角「检测可用性」再清理');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('清理失效源'),
+        content: Text(
+          '将删除 ${bad.length} 个检测为不可用的源：\n'
+          '${bad.take(6).map((s) => '· ${s.name}').join('\n')}'
+          '${bad.length > 6 ? '\n… 还有 ${bad.length - 6} 个' : ''}\n\n'
+          '与这些源关联的收藏和观看记录也会一并清理，确定继续吗？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('清理'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    var removed = 0;
+    for (final source in bad) {
+      if (!app.sources.any((s) => s.id == source.id)) continue;
+      await app.removeSource(source.id);
+      removed++;
+    }
+    if (!context.mounted) return;
+    _snack(context, '已清理 $removed 个失效源，剩余 ${app.sources.length} 个');
   }
 
   void _snack(BuildContext context, String message) {

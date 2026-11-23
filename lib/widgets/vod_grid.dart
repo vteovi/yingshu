@@ -91,19 +91,17 @@ VodGridSpec vodGridSpec({
   }
 
   // 横版：按档位给一个「目标宽度」，再由可用宽度反推列数。
-  // 手机竖屏上「大」档原本会落到 1 列，铺满整屏的巨幅卡片两边还留黑边，
-  // 现在窄屏（可用宽 < 600）强制至少 2 列，让「大」和「中」视觉上差不多。
+  // 手机竖屏时「中」「大」都会落到 1 列，这时让「大」的列数和画幅跟「中」完全一致
+  // （铺满一列、16:10），不再单独用 4:3 把卡片拉高。
   final landscapeTarget = switch (size) {
     PosterSize.small => 128.0,
     PosterSize.medium => 200.0,
     PosterSize.large => 300.0,
   } * _wideScale(maxWidth);
-  var columns = (available / landscapeTarget).floor().clamp(1, 4);
-  if (size == PosterSize.large && columns < 2 && available < 600) {
-    columns = 2;
-  }
+  final columns = (available / landscapeTarget).floor().clamp(1, 4);
   final width = (available - _spacing * (columns - 1)) / columns;
-  final aspect = (columns == 1 && size == PosterSize.large) ? 4 / 3 : 16 / 10;
+  // 一列时不再给「大」单独换 4:3 画幅，保持与「中」一致。
+  const aspect = 16 / 10;
   return VodGridSpec(
     columns: columns,
     width: width,
