@@ -434,6 +434,12 @@ class _PosterModeButtonState extends State<_PosterModeButton> {
     PosterSize.large: '海报大',
   };
 
+  static const Map<PosterSize, IconData> _sizeIcons = {
+    PosterSize.small: Icons.grid_view_rounded,
+    PosterSize.medium: Icons.grid_on_rounded,
+    PosterSize.large: Icons.view_module_rounded,
+  };
+
   PosterMode get _next {
     switch (widget.mode) {
       case PosterMode.portrait:
@@ -455,12 +461,13 @@ class _PosterModeButtonState extends State<_PosterModeButton> {
       Rect.fromPoints(topLeft, bottomRight),
       Offset.zero & overlay.size,
     );
-    final picked = await showMenu<PosterMode>(
+    final picked = await showMenu<Object>(
       context: context,
       position: position,
       items: [
+        _menuHeader('海报样式'),
         for (final mode in PosterMode.values)
-          PopupMenuItem<PosterMode>(
+          PopupMenuItem<Object>(
             value: mode,
             child: Row(
               children: [
@@ -485,9 +492,57 @@ class _PosterModeButtonState extends State<_PosterModeButton> {
               ],
             ),
           ),
+        const PopupMenuDivider(),
+        _menuHeader('海报大小'),
+        for (final size in PosterSize.values)
+          PopupMenuItem<Object>(
+            value: size,
+            child: Row(
+              children: [
+                Icon(
+                  _sizeIcons[size] ?? Icons.photo_size_select_large,
+                  size: 18,
+                  color: size == widget.size
+                      ? Theme.of(context).colorScheme.primary
+                      : context.palette.textSecondary,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  _sizeLabels[size] ?? '',
+                  style: TextStyle(
+                    fontWeight: size == widget.size ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+                if (size == widget.size) ...[
+                  const Spacer(),
+                  Icon(Icons.check, size: 17, color: Theme.of(context).colorScheme.primary),
+                ],
+              ],
+            ),
+          ),
       ],
     );
-    if (picked != null && picked != widget.mode) widget.onChanged(picked);
+    if (picked is PosterMode && picked != widget.mode) {
+      widget.onChanged(picked);
+    } else if (picked is PosterSize && picked != widget.size) {
+      widget.onSizeChanged(picked);
+    }
+  }
+
+  /// 菜单里的分组标题，不可点。
+  PopupMenuItem<Object> _menuHeader(String title) {
+    return PopupMenuItem<Object>(
+      enabled: false,
+      height: 34,
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: context.palette.textFaint,
+        ),
+      ),
+    );
   }
 
   @override
