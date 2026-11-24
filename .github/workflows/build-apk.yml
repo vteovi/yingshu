@@ -88,3 +88,72 @@ jobs:
             可直接导入 TVBox 配置（含 `sites` / `urls`）与本地 JSON。
           files: dist/*.apk
           fail_on_unmatched_files: false
+
+  # Windows 桌面版：与 APK 同一个 Release，多挂一个 zip
+  build-windows:
+    name: 构建 Windows 桌面版
+    needs: build-apk
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 读出版本号
+        id: ver
+        shell: bash
+        run: |
+          VERSION_LINE=$(grep -m1 '^version:' pubspec.yaml)
+          VERSION=${VERSION_LINE#version:}
+          VERSION=${VERSION%%+*}
+          VERSION=$(echo "$VERSION" | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 准备 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 生成 Windows 平台壳
+        shell: bash
+        run: |
+          flutter create --platforms=windows --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
+          cp -r "$RUNNER_TEMP/shell/windows" .
+          flutter pub get
+
+      - name: 生成应用图标
+        shell: bash
+        run: dart run flutter_launcher_icons
+
+      - name: 构建 Windows release
+        shell: bash
+        run: flutter build windows --release
+
+      - name: 打包成 zip
+        shell: pwsh
+        run: |
+          $rel = Get-ChildItem -Path build/windows -Directory -Recurse -Filter 'Release' |
+            Where-Object { $_.FullName -match 'runner' } | Select-Object -First 1
+          if (-not $rel) { throw '没有找到 Windows Release 输出目录' }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $zip = "dist/影枢_${{ steps.ver.outputs.version }}_windows_x64.zip"
+          Compress-Archive -Path (Join-Path $rel.FullName '*') -DestinationPath $zip -Force
+          Get-Item $zip | Select-Object Name, Length
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: yingshu-windows-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 追加到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: 影枢 CineHub v${{ steps.ver.outputs.version }}
+          files: dist/*.zip
+          fail_on_unmatched_files: false

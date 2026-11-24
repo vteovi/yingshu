@@ -112,6 +112,7 @@ class SourcesPage extends StatelessWidget {
                         checking: app.isCheckingSource(source.id),
                         isCurrent: app.currentSource?.id == source.id,
                         onTap: () => _openEdit(context, source),
+                        onCheck: () => _runSingleCheck(context, app, source),
                         onToggle: (value) => app.toggleSource(source.id, value),
                         onDelete: () => _confirmDelete(context, app, source),
                       );
@@ -142,6 +143,25 @@ class SourcesPage extends StatelessWidget {
           : '${summary.available} 个可用已启用排在前，'
               '${summary.unavailable} 个不可用已关闭排在后',
     );
+  }
+
+  Future<void> _runSingleCheck(BuildContext context, AppState app, CmsSource source) async {
+    final health = await app.checkSource(source.id);
+    if (!context.mounted) return;
+    if (health == null) {
+      _snack(context, '这个源已经不在列表里了');
+      return;
+    }
+    if (health.isAvailable) {
+      final latency = health.latencyLabel;
+      _snack(
+        context,
+        '「${source.name}」可用${latency.isEmpty ? '' : ' · $latency'}'
+        '${health.message.isEmpty ? '' : ' · ${health.message}'}',
+      );
+    } else {
+      _snack(context, '「${source.name}」不可用 · ${health.message}');
+    }
   }
 
   void _openEdit(BuildContext context, CmsSource? source) {
@@ -549,6 +569,7 @@ class _SourceCard extends StatelessWidget {
     this.checking = false,
     required this.isCurrent,
     required this.onTap,
+    required this.onCheck,
     required this.onToggle,
     required this.onDelete,
   });
@@ -558,6 +579,7 @@ class _SourceCard extends StatelessWidget {
   final bool checking;
   final bool isCurrent;
   final VoidCallback onTap;
+  final VoidCallback onCheck;
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
 
@@ -636,6 +658,15 @@ class _SourceCard extends StatelessWidget {
                       ),
                     ],
                   ],
+                ),
+              ),
+              IconButton(
+                tooltip: checking ? '正在检测…' : '检测这个源',
+                onPressed: checking ? null : onCheck,
+                icon: Icon(
+                  checking ? Icons.hourglass_top_rounded : Icons.network_check,
+                  size: 19,
+                  color: context.palette.textFaint,
                 ),
               ),
               IconButton(

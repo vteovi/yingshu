@@ -237,7 +237,12 @@ class VodMasonryGrid extends StatelessWidget {
       builder: (context, _) {
         final available = maxWidth - _horizontalPadding * 2;
         final target = _targetTileWidth(size, maxWidth);
-        final columns = (available / target).floor().clamp(1, 8);
+        var columns = (available / target).floor().clamp(1, 8);
+        // 与网格模式保持一致：窄屏（手机竖屏）的「大」档不排单列，
+        // 单列会让卡片两边各留一条大黑边，直接补到两列。
+        if (size == PosterSize.large && columns < 2 && available < 600) {
+          columns = 2;
+        }
         final itemWidth = (available - _spacing * (columns - 1)) / columns;
         final caption = landscape ? 44.0 : 46.0;
 

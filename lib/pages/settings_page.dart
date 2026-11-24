@@ -159,6 +159,54 @@ class SettingsPage extends StatelessWidget {
           _SectionTitle('播放'),
           _Card(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.screen_rotation_alt_outlined, size: 24),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('播放屏幕方向', style: TextStyle(fontSize: 15)),
+                              const SizedBox(height: 2),
+                              Text(
+                                app.playerOrientation.description,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: context.palette.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<PlayerOrientation>(
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                        segments: [
+                          for (final mode in PlayerOrientation.values)
+                            ButtonSegment<PlayerOrientation>(
+                              value: mode,
+                              label: Text(mode.label),
+                            ),
+                        ],
+                        selected: {app.playerOrientation},
+                        onSelectionChanged: (value) => app.setPlayerOrientation(value.first),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
               SwitchListTile(
                 secondary: const Icon(Icons.skip_next_outlined),
                 title: const Text('自动连播下一集'),

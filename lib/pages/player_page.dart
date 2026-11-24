@@ -120,6 +120,8 @@ class _PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
     _index = widget.initialIndex.clamp(0, widget.episodes.length - 1).toInt();
+    // 先取一次状态：屏幕方向设置要在进沉浸式时就生效
+    _state = context.read<AppState>();
     _enterImmersive();
     _loadSystemLevels();
     _openCurrent(seekTo: widget.initialPosition);
@@ -161,20 +163,38 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Future<void> _enterImmersive() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    await SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // 「跟随视频」要等片源加载出真实比例再定方向，这里先不动，避免闪一下横屏
+    if (_orientationMode == PlayerOrientation.video) return;
+    await _applyOrientation(1.0);
   }
 
+  PlayerOrientation get _orientationMode =>
+      _state?.playerOrientation ?? PlayerOrientation.video;
+
+  /// 按设置决定屏幕方向：
+  /// - 自动旋转：强制允许竖/横四方向，不管系统有没有开旋转锁；
+  /// - 跟随系统：不表态（空列表＝交给系统），系统锁竖屏就一直是竖屏；
+  /// - 跟随视频：宽屏视频锁横屏、竖屏视频锁竖屏。
   Future<void> _applyOrientation(double aspectRatio) async {
-    final landscape = aspectRatio >= 1.25;
-    await SystemChrome.setPreferredOrientations(
-      landscape
-          ? const [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
-          : const [DeviceOrientation.portraitUp],
-    );
+    switch (_orientationMode) {
+      case PlayerOrientation.auto:
+        await SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        return;
+      case PlayerOrientation.system:
+        await SystemChrome.setPreferredOrientations(const []);
+        return;
+      case PlayerOrientation.video:
+        final landscape = aspectRatio >= 1.25;
+        await SystemChrome.setPreferredOrientations(
+          landscape
+              ? const [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
+              : const [DeviceOrientation.portraitUp],
+        );
+    }
   }
 
   Future<void> _loadSystemLevels() async {

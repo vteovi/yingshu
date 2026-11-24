@@ -93,6 +93,27 @@ enum PosterMode {
   }
 }
 
+/// 播放页屏幕方向：决定进入播放页后要不要、以及按什么规则转屏。
+enum PlayerOrientation {
+  auto('auto', '自动旋转', '忽略系统旋转锁，横着拿就横屏、竖着拿就竖屏'),
+  system('system', '跟随系统', '播放页不干预方向，由系统当前的方向设置决定'),
+  video('video', '跟随视频', '按片源宽高比定死方向：宽屏转横屏，竖屏视频保持竖屏');
+
+  const PlayerOrientation(this.key, this.label, this.description);
+
+  final String key;
+  final String label;
+  final String description;
+
+  static PlayerOrientation parse(Object? raw) {
+    final value = raw?.toString();
+    for (final item in values) {
+      if (item.key == value) return item;
+    }
+    return PlayerOrientation.video;
+  }
+}
+
 /// 全局状态：订阅源、收藏、历史、设置。
 class AppState extends ChangeNotifier {
   AppState(this._store);
@@ -124,6 +145,7 @@ class AppState extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   PosterSize _posterSize = PosterSize.medium;
   PosterMode _posterMode = PosterMode.portrait;
+  PlayerOrientation _playerOrientation = PlayerOrientation.video;
 
   CmsApi get api => _api;
   String get userAgent => _userAgent;
@@ -133,6 +155,7 @@ class AppState extends ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   PosterSize get posterSize => _posterSize;
   PosterMode get posterMode => _posterMode;
+  PlayerOrientation get playerOrientation => _playerOrientation;
 
   /// 兼容旧调用：横向卡片 = 海报样式选了「横向」
   bool get landscapeCard => _posterMode == PosterMode.landscape;
@@ -239,6 +262,7 @@ class AppState extends ChangeNotifier {
     _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : true;
     _themeMode = _parseThemeMode(settings['themeMode']);
     _posterSize = PosterSize.parse(settings['posterSize']);
+    _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);
     // 新设置只有 posterMode 一个键；老版本存档里是
     // posterLayout(规整/原始比例) + landscapeCard(开关)，这里做一次迁移
     if (settings.containsKey('posterMode')) {
@@ -390,6 +414,50 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// 探测单个源，返回检测结果（不落库，由调用方决定怎么用）。
+  Future<SourceHealth> _probeSource(CmsSource source) async {
+    final stopwatch = Stopwatch()..start();
+    try {
+      final index = await _api.probe(source.api);
+      stopwatch.stop();
+      final usable = index.categories.isNotEmpty || index.videos.isNotEmpty;
+      return SourceHealth(
+        status: usable ? SourceHealthStatus.available : SourceHealthStatus.unavailable,
+        message: usable
+            ? '接口正常，${index.categories.length} 个分类 / ${index.videos.length} 条数据'
+            : '接口有响应但没有返回分类或影片数据',
+        latencyMs: stopwatch.elapsedMilliseconds,
+        checkedAt: DateTime.now(),
+      );
+    } catch (error) {
+      stopwatch.stop();
+      return SourceHealth(
+        status: SourceHealthStatus.unavailable,
+        message: error.toString().replaceFirst('CmsException: ', ''),
+        latencyMs: stopwatch.elapsedMilliseconds,
+        checkedAt: DateTime.now(),
+      );
+    }
+  }
+
+  /// 单个检测：只刷新这一个源的状态，不改排序、也不动它的启用开关。
+  ///
+  /// 批量检测会顺带把可用源启用、不可用源关闭并重排；单个检测只想知道
+  /// 「这一个现在还能不能用」，所以这里刻意保持克制。
+  Future<SourceHealth?> checkSource(String sourceId) async {
+    final source = findSource(sourceId);
+    if (source == null) return null;
+    if (_checkingIds.contains(sourceId)) return healthOf(sourceId);
+    _checkingIds.add(sourceId);
+    notifyListeners();
+    final health = await _probeSource(source);
+    _health[sourceId] = health;
+    _checkingIds.remove(sourceId);
+    await _persistHealth();
+    notifyListeners();
+    return health;
+  }
+
   /// 逐个探测订阅源是否可用，测完把可用的打开并排到前面、不可用的关掉排到后面。
   Future<SourceCheckSummary> checkSources() async {
     if (_checking || _sources.isEmpty) {
@@ -416,29 +484,7 @@ class AppState extends ChangeNotifier {
         final source = queue.removeAt(0);
         _checkingIds.add(source.id);
         notifyListeners();
-        final stopwatch = Stopwatch()..start();
-        SourceHealth health;
-        try {
-          final index = await _api.probe(source.api);
-          stopwatch.stop();
-          final usable = index.categories.isNotEmpty || index.videos.isNotEmpty;
-          health = SourceHealth(
-            status: usable ? SourceHealthStatus.available : SourceHealthStatus.unavailable,
-            message: usable
-                ? '接口正常，${index.categories.length} 个分类 / ${index.videos.length} 条数据'
-                : '接口有响应但没有返回分类或影片数据',
-            latencyMs: stopwatch.elapsedMilliseconds,
-            checkedAt: DateTime.now(),
-          );
-        } catch (error) {
-          stopwatch.stop();
-          health = SourceHealth(
-            status: SourceHealthStatus.unavailable,
-            message: error.toString().replaceFirst('CmsException: ', ''),
-            latencyMs: stopwatch.elapsedMilliseconds,
-            checkedAt: DateTime.now(),
-          );
-        }
+        final health = await _probeSource(source);
         results[source.id] = health;
         // 每条结果一出来就落到界面上：卡片上的状态、进度条、计数都立刻更新
         _health[source.id] = health;
@@ -653,6 +699,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPlayerOrientation(PlayerOrientation mode) async {
+    if (_playerOrientation == mode) return;
+    _playerOrientation = mode;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------- 搜索记录
   Future<void> addSearchHistory(String keyword) async {
     final value = keyword.trim();
@@ -697,6 +750,7 @@ class AppState extends ChangeNotifier {
       'themeMode': _themeMode.name,
       'posterSize': _posterSize.key,
       'posterMode': _posterMode.key,
+      'playerOrientation': _playerOrientation.key,
     });
   }
 }
