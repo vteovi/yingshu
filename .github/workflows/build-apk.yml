@@ -140,7 +140,8 @@ jobs:
             Where-Object { $_.FullName -match 'runner' } | Select-Object -First 1
           if (-not $rel) { throw '没有找到 Windows Release 输出目录' }
           New-Item -ItemType Directory -Force dist | Out-Null
-          $zip = "dist/影枢_${{ steps.ver.outputs.version }}_windows_x64.zip"
+          # 文件名用纯 ASCII：GitHub 会把 Release 资产名里的中文替换成下划线
+          $zip = "dist/yingshu-${{ steps.ver.outputs.version }}-windows-x64.zip"
           Compress-Archive -Path (Join-Path $rel.FullName '*') -DestinationPath $zip -Force
           Get-Item $zip | Select-Object Name, Length
 
