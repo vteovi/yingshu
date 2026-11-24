@@ -116,15 +116,17 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 生成 Windows 平台壳
+      - name: 生成平台壳（Windows 版也带上 android/ios 目录，图标工具需要）
         shell: bash
         run: |
-          flutter create --platforms=windows --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
-          cp -r "$RUNNER_TEMP/shell/windows" .
+          flutter create --platforms=android,ios,windows --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
+          cp -r "$RUNNER_TEMP/shell/android" "$RUNNER_TEMP/shell/ios" "$RUNNER_TEMP/shell/windows" .
           flutter pub get
 
       - name: 生成应用图标
         shell: bash
+        # 图标只是锦上添花，生成失败不该拦住整条 Windows 流水线
+        continue-on-error: true
         run: dart run flutter_launcher_icons
 
       - name: 构建 Windows release
