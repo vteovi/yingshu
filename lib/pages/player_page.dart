@@ -171,11 +171,41 @@ class _PlayerPageState extends State<PlayerPage> {
   PlayerOrientation get _orientationMode =>
       _state?.playerOrientation ?? PlayerOrientation.video;
 
+  /// 手动旋转：null＝听设置，true＝锁横屏，false＝锁竖屏。
+  ///
+  /// 点一次「旋转画面」就临时接管方向，再点一次翻回来；用户重新选画面比例时清空。
+  bool? _manualLandscape;
+
+  Future<void> _toggleRotation() async {
+    final size = MediaQuery.of(context).size;
+    final isLandscape = size.width > size.height;
+    final toLandscape = !isLandscape;
+    _manualLandscape = toLandscape;
+    _showControls();
+    await _applyOrientation(toLandscape ? 16 / 9 : 9 / 16);
+    if (!mounted) return;
+    _showHud(
+      toLandscape ? Icons.stay_current_landscape_rounded : Icons.stay_current_portrait_rounded,
+      toLandscape ? '已切到横屏播放' : '已切到竖屏播放',
+      null,
+    );
+  }
+
   /// 按设置决定屏幕方向：
   /// - 自动旋转：强制允许竖/横四方向，不管系统有没有开旋转锁；
   /// - 跟随系统：不表态（空列表＝交给系统），系统锁竖屏就一直是竖屏；
-  /// - 跟随视频：宽屏视频锁横屏、竖屏视频锁竖屏。
+  /// - 跟随视频：宽屏视频锁横屏、竖屏视频锁竖屏；
+  /// - 手动旋转过的话优先执行手动结果。
   Future<void> _applyOrientation(double aspectRatio) async {
+    final manual = _manualLandscape;
+    if (manual != null) {
+      await SystemChrome.setPreferredOrientations(
+        manual
+            ? const [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]
+            : const [DeviceOrientation.portraitUp],
+      );
+      return;
+    }
     switch (_orientationMode) {
       case PlayerOrientation.auto:
         await SystemChrome.setPreferredOrientations(const [
@@ -749,6 +779,8 @@ class _PlayerPageState extends State<PlayerPage> {
   ];
 
   void _applyAspect(String label, double? ratio) {
+    // 换比例等于重新表态方向，撤掉「旋转画面」按钮的临时锁定
+    _manualLandscape = null;
     setState(() {
       _aspectOverride = ratio;
       _aspectLabel = label;
@@ -1309,6 +1341,11 @@ class _PlayerPageState extends State<PlayerPage> {
                               ),
                             ),
                           ),
+                        ),
+                        IconButton(
+                          tooltip: '旋转画面（横屏 / 竖屏）',
+                          onPressed: _toggleRotation,
+                          icon: const Icon(Icons.screen_rotation_alt_rounded, size: 24, color: _kText),
                         ),
                         IconButton(
                           tooltip: '画面比例：$_aspectLabel',
