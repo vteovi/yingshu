@@ -12,6 +12,7 @@ import '../core/constants.dart';
 import '../core/hls_probe.dart';
 import '../core/pip.dart';
 import '../core/play_resolver.dart';
+import '../core/screen_wake.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
 import '../theme/app_palette.dart';
@@ -69,6 +70,9 @@ class _PlayerPageState extends State<PlayerPage> {
 
   int _index = 0;
   double _rate = 1.0;
+
+  /// 是否正处于「长按 2 倍速」状态，松手要还原 [_rate]。
+  bool _boosting = false;
   bool _controlsVisible = true;
   bool _dragging = false;
   double _dragValue = 0;
@@ -114,6 +118,8 @@ class _PlayerPageState extends State<PlayerPage> {
     _scheduleHide();
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) => _saveProgress());
     _setupPip();
+    // 播放全程别让系统锁屏
+    ScreenWake.acquire();
   }
 
   Future<void> _setupPip() async {
@@ -403,10 +409,34 @@ class _PlayerPageState extends State<PlayerPage> {
     final next = (_rate + delta).clamp(0.5, 3.0);
     if ((next - _rate).abs() < 0.001) return;
     setState(() => _rate = next);
-    try {
-      await _controller?.setPlaybackSpeed(next);
-    } catch (_) {}
+    await _applySpeed(next);
     _showHud(Icons.speed_rounded, '${next.toStringAsFixed(2)}× 倍速', null);
+  }
+
+  /// 长按 2 倍速：松开恢复用户自己调的速度。
+  void _onLongPressStart(LongPressStartDetails details) {
+    if (_controller == null) return;
+    _boosting = true;
+    _hideTimer?.cancel();
+    _applySpeed(2.0);
+    _showHud(Icons.fast_forward_rounded, '2.00× 倍速（长按中）', null);
+  }
+
+  void _onLongPressEnd(LongPressEndDetails details) {
+    if (!_boosting) return;
+    _boosting = false;
+    _applySpeed(_rate);
+    _showHud(
+      Icons.speed_rounded,
+      _rate == 1.0 ? '恢复正常速度' : '${_rate.toStringAsFixed(2)}× 倍速',
+      null,
+    );
+  }
+
+  Future<void> _applySpeed(double value) async {
+    try {
+      await _controller?.setPlaybackSpeed(value);
+    } catch (_) {}
   }
 
   void _onVerticalDragStart(DragStartDetails details) {
@@ -854,6 +884,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   void dispose() {
+    ScreenWake.release();
     Pip.clearListener();
     _saveProgress();
     _hideTimer?.cancel();
@@ -888,6 +919,11 @@ class _PlayerPageState extends State<PlayerPage> {
               onVerticalDragStart: _onVerticalDragStart,
               onVerticalDragUpdate: _onVerticalDragUpdate,
               onVerticalDragEnd: _onVerticalDragEnd,
+              onLongPressStart: _onLongPressStart,
+              onLongPressEnd: _onLongPressEnd,
+              onLongPressCancel: () {
+                if (_boosting) _onLongPressEnd(const LongPressEndDetails());
+              },
             ),
           ),
           if (_buffering && _error == null)
