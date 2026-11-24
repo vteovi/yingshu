@@ -27,7 +27,8 @@ const Color _kAccent = Color(0xFF8FB6FF);
 /// 单页播放器：video_player（Android 侧 ExoPlayer），支持 HLS / 直链 / 倍速 / 连播 / 断点续播。
 ///
 /// 进入即沉浸式全屏（隐藏状态栏与导航栏），并按视频比例自动横/竖屏。
-/// 手势：左右半屏上下滑调亮度 / 音量，双击播放暂停，双指上下滑调速。
+/// 手势：左右半屏上下滑调亮度 / 音量，左右滑调播放进度，双击播放暂停，
+/// 双指上下滑调速，长按 2 倍速。
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
@@ -95,6 +96,13 @@ class _PlayerPageState extends State<PlayerPage> {
   double _gestureStartValue = 1;
   double _brightness = 1;
   double _volume = 1;
+
+  // ------------------------------------------------------- 横向滑动调进度
+  /// 是否正处于「横向滑动调进度」中（松手才真正 seek）。
+  bool _seeking = false;
+  double _seekStartX = 0;
+  double _seekStartMs = 0;
+  double _seekPreviewMs = 0;
 
   IconData? _hudIcon;
   String? _hudText;
@@ -472,13 +480,87 @@ class _PlayerPageState extends State<PlayerPage> {
     _scheduleHide();
   }
 
-  void _showHud(IconData icon, String text, double? level) {
+  // ------------------------------------------------------------ 横向滑动调进度
+
+  /// 滑满一个屏幕宽度对应的进度跨度：按时长自适应，短时间歇剧短一点，长片长一点。
+  Duration get _seekSpan {
+    final total = _duration.inMilliseconds;
+    if (total <= 0) return const Duration(seconds: 90);
+    return Duration(milliseconds: (total / 4).clamp(30000, 300000).round());
+  }
+
+  void _onHorizontalDragStart(DragStartDetails details) {
+    if (_twoFinger || _controller == null || _duration <= Duration.zero) return;
+    _hideTimer?.cancel();
+    setState(() {
+      _controlsVisible = true;
+      _seeking = true;
+      _seekStartX = details.localPosition.dx;
+      _seekStartMs = _position.inMilliseconds.toDouble();
+      _seekPreviewMs = _seekStartMs;
+    });
+    _showHud(
+      Icons.swipe_rounded,
+      '左右滑动调进度\n${_formatDuration(Duration(milliseconds: _seekStartMs.round()))} / ${_formatDuration(_duration)}',
+      _duration.inMilliseconds > 0 ? _seekStartMs / _duration.inMilliseconds : 0,
+      persist: true,
+    );
+  }
+
+  void _onHorizontalDragUpdate(DragUpdateDetails details) {
+    if (!_seeking || _twoFinger) return;
+    final width = math.max(MediaQuery.of(context).size.width, 1.0);
+    final total = _duration.inMilliseconds.toDouble();
+    final deltaMs = (details.localPosition.dx - _seekStartX) / width * _seekSpan.inMilliseconds;
+    final next = (_seekStartMs + deltaMs).clamp(0.0, total);
+    if ((next - _seekPreviewMs).abs() < 1) return;
+    setState(() => _seekPreviewMs = next);
+
+    final diff = (next - _seekStartMs).round();
+    final sign = diff < 0 ? '-' : '+';
+    final arrow = diff < 0 ? Icons.fast_rewind_rounded : Icons.fast_forward_rounded;
+    _showHud(
+      arrow,
+      '${_formatDuration(Duration(milliseconds: next.round()))} / ${_formatDuration(_duration)}'
+          '\n$sign${_formatDuration(Duration(milliseconds: diff.abs()))}',
+      total > 0 ? next / total : 0,
+      persist: true,
+    );
+  }
+
+  Future<void> _onHorizontalDragEnd(DragEndDetails details) async {
+    if (!_seeking) return;
+    final target = Duration(milliseconds: _seekPreviewMs.round());
+    setState(() => _seeking = false);
+    final moved = (target - Duration(milliseconds: _seekStartMs.round())).abs();
+    if (moved >= const Duration(seconds: 1)) {
+      await _seekTo(target);
+      if (!mounted) return;
+      _showHud(
+        target < Duration(milliseconds: _seekStartMs.round())
+            ? Icons.fast_rewind_rounded
+            : Icons.fast_forward_rounded,
+        '已跳转到 ${_formatDuration(target)}',
+        null,
+      );
+    }
+    if (mounted) _scheduleHide();
+  }
+
+  void _onHorizontalDragCancel() {
+    if (!_seeking) return;
+    setState(() => _seeking = false);
+    _scheduleHide();
+  }
+
+  void _showHud(IconData icon, String text, double? level, {bool persist = false}) {
     setState(() {
       _hudIcon = icon;
       _hudText = text;
       _hudLevel = level;
     });
     _hudTimer?.cancel();
+    if (persist) return; // 拖动过程中常显，不由定时器收回
     _hudTimer = Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       setState(() {
@@ -919,6 +1001,10 @@ class _PlayerPageState extends State<PlayerPage> {
               onVerticalDragStart: _onVerticalDragStart,
               onVerticalDragUpdate: _onVerticalDragUpdate,
               onVerticalDragEnd: _onVerticalDragEnd,
+              onHorizontalDragStart: _onHorizontalDragStart,
+              onHorizontalDragUpdate: _onHorizontalDragUpdate,
+              onHorizontalDragEnd: _onHorizontalDragEnd,
+              onHorizontalDragCancel: _onHorizontalDragCancel,
               onLongPressStart: _onLongPressStart,
               onLongPressEnd: _onLongPressEnd,
               onLongPressCancel: () {
@@ -986,6 +1072,7 @@ class _PlayerPageState extends State<PlayerPage> {
               const SizedBox(height: 6),
               Text(
                 text,
+                textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13, color: _kText, fontWeight: FontWeight.w600),
               ),
               if (level != null) ...[
@@ -1233,7 +1320,9 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget _buildProgress() {
     final duration = _duration;
     final maxMs = duration.inMilliseconds > 0 ? duration.inMilliseconds : 1;
-    final currentMs = _dragging ? _dragValue : _position.inMilliseconds.toDouble();
+    final currentMs = _seeking
+        ? _seekPreviewMs
+        : (_dragging ? _dragValue : _position.inMilliseconds.toDouble());
     final value = currentMs.clamp(0.0, maxMs.toDouble()).toDouble();
 
     return Column(
@@ -1272,7 +1361,11 @@ class _PlayerPageState extends State<PlayerPage> {
           child: Row(
             children: [
               Text(
-                _formatDuration(_dragging ? Duration(milliseconds: _dragValue.round()) : _position),
+                _formatDuration(
+                  _seeking
+                      ? Duration(milliseconds: _seekPreviewMs.round())
+                      : (_dragging ? Duration(milliseconds: _dragValue.round()) : _position),
+                ),
                 style: const TextStyle(fontSize: 12, color: _kTextDim),
               ),
               const Spacer(),
