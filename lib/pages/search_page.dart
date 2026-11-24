@@ -31,6 +31,21 @@ class _SearchPageState extends State<SearchPage> {
   /// 「全部 / 各来源」筛选标签做成了可左右滑动的分页。
   final PageController _pager = PageController();
 
+  /// 标签条自己的横向滚动：滑动结果区时，标签要跟着一起挪，别让当前标签跑出屏幕。
+  final ScrollController _chipsScroll = ScrollController();
+  final GlobalKey _chipsViewportKey = GlobalKey();
+  final Map<String, GlobalKey> _chipKeys = {};
+
+  /// 每个标签在标签条内容坐标系里的左边缘与宽度（布局后测出来）。
+  final Map<String, double> _chipLeft = {};
+  final Map<String, double> _chipWidth = {};
+
+  static const String _allChipId = '__all__';
+  static const double _chipsPadding = 16;
+  static const double _chipsGap = 8;
+
+  String _chipId(String? sourceId) => sourceId ?? _allChipId;
+
   /// 搜索结果用「海报网格」还是之前的「列表」样式。
   bool _listMode = false;
 
@@ -40,11 +55,72 @@ class _SearchPageState extends State<SearchPage> {
   int _total = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _pager.addListener(_syncChipsWithPager);
+  }
+
+  @override
   void dispose() {
+    _pager.removeListener(_syncChipsWithPager);
+    _pager.dispose();
+    _chipsScroll.dispose();
     _controller.dispose();
     _focusNode.dispose();
-    _pager.dispose();
     super.dispose();
+  }
+
+  /// 手指拖动结果区时，让标签条按当前页的小数进度同步平移。
+  void _syncChipsWithPager() {
+    if (!_chipsScroll.hasClients) return;
+    final page = _pager.page;
+    if (page == null) return;
+    final target = _chipsOffsetForPage(page);
+    if (target == null) return;
+    final position = _chipsScroll.position;
+    _chipsScroll.jumpTo(
+      target.clamp(position.minScrollExtent, position.maxScrollExtent),
+    );
+  }
+
+  /// 页 p（可以带小数）对应的标签条滚动偏移：让当前标签居中。
+  double? _chipsOffsetForPage(double page) {
+    final ids = _filterIds();
+    if (ids.isEmpty) return null;
+    final viewport = _chipsViewportKey.currentContext?.findRenderObject() as RenderBox?;
+    if (viewport == null) return null;
+    final width = viewport.size.width;
+
+    double centerOf(int index) {
+      final key = _chipId(ids[index.clamp(0, ids.length - 1)]);
+      final left = _chipLeft[key];
+      final w = _chipWidth[key];
+      if (left == null || w == null) return 0;
+      return left + w / 2;
+    }
+
+    final lower = page.floor();
+    final upper = page.ceil();
+    final t = page - lower;
+    final center = centerOf(lower) * (1 - t) + centerOf(upper) * t;
+    return center - width / 2;
+  }
+
+  /// 布局完成后量一遍标签的位置，供上面的同步滚动用。
+  void _measureChips(List<String?> ids) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      var left = _chipsPadding;
+      for (final id in ids) {
+        final key = _chipKeys[_chipId(id)];
+        final box = key?.currentContext?.findRenderObject() as RenderBox?;
+        if (box == null) continue;
+        _chipLeft[_chipId(id)] = left;
+        _chipWidth[_chipId(id)] = box.size.width;
+        left += box.size.width + _chipsGap;
+      }
+      _syncChipsWithPager();
+    });
   }
 
   Future<void> _search() async {
@@ -185,15 +261,26 @@ class _SearchPageState extends State<SearchPage> {
       sourceNames[hit.source.id] = hit.source.name;
     }
 
+    final ids = _filterIds();
+    _measureChips(ids);
+
     return SizedBox(
+      key: _chipsViewportKey,
       height: 40,
-      child: ListView(
+      child: SingleChildScrollView(
+        controller: _chipsScroll,
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
+        physics: const ClampingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: _chipsPadding),
+        // 用 Row 而不是 ListView：Row 会把每个标签都排一遍，位置量得准，
+        // 同步滚动时不会因为「离屏没布局」而算错。
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: EdgeInsets.only(right: _chipsGap),
             child: FilterChip(
+              key: _chipKeys.putIfAbsent(_allChipId, () => GlobalKey()),
               label: Text('全部 ${_hits.length}'),
               selected: _filterSourceId == null,
               onSelected: (_) => _selectFilter(null),
@@ -201,14 +288,16 @@ class _SearchPageState extends State<SearchPage> {
           ),
           for (final entry in sourceCounts.entries)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: EdgeInsets.only(right: _chipsGap),
               child: FilterChip(
+                key: _chipKeys.putIfAbsent(_chipId(entry.key), () => GlobalKey()),
                 label: Text('${sourceNames[entry.key] ?? ''} ${entry.value}'),
                 selected: _filterSourceId == entry.key,
                 onSelected: (_) => _selectFilter(entry.key),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
