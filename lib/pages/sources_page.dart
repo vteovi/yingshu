@@ -99,6 +99,13 @@ class SourcesPage extends StatelessWidget {
                     text: '可用 ${app.availableCount} 个 · 不可用 ${app.unavailableCount} 个',
                     showDot: false,
                   ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Text(
+                    '点卡片可编辑 · 长按卡片可删除',
+                    style: TextStyle(fontSize: 11, color: context.palette.textFaint),
+                  ),
+                ),
                 Expanded(
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
@@ -581,6 +588,8 @@ class _SourceCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onCheck;
   final ValueChanged<bool> onToggle;
+
+  /// 长按整张卡片才走这里：弹出删除确认，避免行内多一个删除按钮太挤。
   final VoidCallback onDelete;
 
   @override
@@ -597,6 +606,7 @@ class _SourceCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
+        onLongPress: onDelete,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
           child: Row(
@@ -668,11 +678,6 @@ class _SourceCard extends StatelessWidget {
                   size: 19,
                   color: context.palette.textFaint,
                 ),
-              ),
-              IconButton(
-                tooltip: '删除',
-                onPressed: onDelete,
-                icon: Icon(Icons.delete_outline, size: 19, color: context.palette.textFaint),
               ),
               Switch(
                 value: source.enabled,
