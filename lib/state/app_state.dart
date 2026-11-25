@@ -654,21 +654,24 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------ 局域网同步
 
-  /// 打包本机数据，给另一台设备取用。
-  LanSyncData exportSyncData() => LanSyncData(
-        sources: _sources.map((source) => source.toJson()).toList(growable: false),
-        favorites: _favorites.map((item) => item.toJson()).toList(growable: false),
-        history: _history.map((item) => item.toJson()).toList(growable: false),
-        settings: {
-          'themeMode': _themeMode.name,
-          'posterSize': _posterSize.key,
-          'posterMode': _posterMode.key,
-          'playerOrientation': _playerOrientation.key,
-          'autoPlayNext': _autoPlayNext,
-          'rememberProgress': _rememberProgress,
-          'skipIntroAd': _skipIntroAd,
-        },
-      );
+  /// 打包本机数据，给另一台设备取用；[scopes] 为 null 时全给。
+  LanSyncData exportSyncData({Set<String>? scopes}) {
+    final data = LanSyncData(
+      sources: _sources.map((source) => source.toJson()).toList(growable: false),
+      favorites: _favorites.map((item) => item.toJson()).toList(growable: false),
+      history: _history.map((item) => item.toJson()).toList(growable: false),
+      settings: {
+        'themeMode': _themeMode.name,
+        'posterSize': _posterSize.key,
+        'posterMode': _posterMode.key,
+        'playerOrientation': _playerOrientation.key,
+        'autoPlayNext': _autoPlayNext,
+        'rememberProgress': _rememberProgress,
+        'skipIntroAd': _skipIntroAd,
+      },
+    );
+    return scopes == null ? data : data.filtered(scopes);
+  }
 
   /// 源的身份标识：优先用接口地址，地址为空时退回名字。
   static String _syncSourceKey(String api, String name) {
@@ -689,31 +692,42 @@ class AppState extends ChangeNotifier {
   /// - 收藏 / 历史：先把对端的 sourceId 映射到本机对应源的 id，再按
   ///   （源, 影片）去重，重复的跳过；历史若对端进度更新则更新断点，
   ///   否则保留本机那条。
-  Future<SyncMergeResult> mergeSyncData(LanSyncData data) async {
+  Future<SyncMergeResult> mergeSyncData(
+    LanSyncData data, {
+    void Function(String scope, int done, int total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
     final idMap = <String, String>{};
     var addedSources = 0;
 
     // ---- 1. 源
+    final sourceTotal = data.sources.length;
+    var sourceDone = 0;
+    onProgress?.call(SyncScope.sources, 0, sourceTotal);
     for (final raw in data.sources) {
+      if (isCancelled?.call() ?? false) break;
       final incoming = CmsSource.fromJson(raw);
-      if (incoming.api.trim().isEmpty) continue;
-      final key = _syncSourceKey(incoming.api, incoming.name);
-      final existing = _findSourceBySyncKey(key);
-      if (existing != null) {
-        idMap[incoming.id] = existing.id;
-        continue;
+      if (incoming.api.trim().isNotEmpty) {
+        final key = _syncSourceKey(incoming.api, incoming.name);
+        final existing = _findSourceBySyncKey(key);
+        if (existing != null) {
+          idMap[incoming.id] = existing.id;
+        } else {
+          final existingIds = _sources.map((source) => source.id).toSet();
+          final id = existingIds.contains(incoming.id) ? CmsSource.newSourceId() : incoming.id;
+          _sources.add(CmsSource(
+            id: id,
+            name: incoming.name,
+            api: incoming.api.trim(),
+            enabled: incoming.enabled,
+            note: incoming.note,
+          ));
+          idMap[incoming.id] = id;
+          addedSources++;
+        }
       }
-      final existingIds = _sources.map((source) => source.id).toSet();
-      final id = existingIds.contains(incoming.id) ? CmsSource.newSourceId() : incoming.id;
-      _sources.add(CmsSource(
-        id: id,
-        name: incoming.name,
-        api: incoming.api.trim(),
-        enabled: incoming.enabled,
-        note: incoming.note,
-      ));
-      idMap[incoming.id] = id;
-      addedSources++;
+      sourceDone++;
+      onProgress?.call(SyncScope.sources, sourceDone, sourceTotal);
     }
 
     String? localIdOf(String incomingSourceId) => idMap[incomingSourceId];
@@ -723,24 +737,33 @@ class AppState extends ChangeNotifier {
       for (final item in _favorites) '${item.sourceId}|${item.vodId}',
     };
     var addedFavorites = 0;
+    final favoriteTotal = data.favorites.length;
+    var favoriteDone = 0;
+    if (favoriteTotal > 0) onProgress?.call(SyncScope.favorites, 0, favoriteTotal);
     for (final raw in data.favorites) {
+      if (isCancelled?.call() ?? false) break;
       final incoming = FavoriteItem.fromJson(raw);
       final localId = localIdOf(incoming.sourceId);
-      if (localId == null) continue; // 来源不在本机（对端那个源地址为空），跳过
-      final key = '$localId|${incoming.vodId}';
-      if (favoriteKeys.contains(key)) continue;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      _favorites.add(FavoriteItem(
-        sourceId: localId,
-        sourceName: _sourceNameOf(localId, incoming.sourceName),
-        vodId: incoming.vodId,
-        name: incoming.name,
-        pic: incoming.pic,
-        remarks: incoming.remarks,
-        savedAt: incoming.savedAt > 0 ? incoming.savedAt : now,
-      ));
-      favoriteKeys.add(key);
-      addedFavorites++;
+      // 来源不在本机（对端那个源地址为空）就跳过
+      if (localId != null) {
+        final key = '$localId|${incoming.vodId}';
+        if (!favoriteKeys.contains(key)) {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          _favorites.add(FavoriteItem(
+            sourceId: localId,
+            sourceName: _sourceNameOf(localId, incoming.sourceName),
+            vodId: incoming.vodId,
+            name: incoming.name,
+            pic: incoming.pic,
+            remarks: incoming.remarks,
+            savedAt: incoming.savedAt > 0 ? incoming.savedAt : now,
+          ));
+          favoriteKeys.add(key);
+          addedFavorites++;
+        }
+      }
+      favoriteDone++;
+      onProgress?.call(SyncScope.favorites, favoriteDone, favoriteTotal);
     }
     if (addedFavorites > 0) {
       _favorites.sort((a, b) => b.savedAt.compareTo(a.savedAt));
@@ -749,23 +772,30 @@ class AppState extends ChangeNotifier {
     // ---- 3. 历史
     var addedHistory = 0;
     var updatedHistory = 0;
+    final historyTotal = data.history.length;
+    var historyDone = 0;
+    if (historyTotal > 0) onProgress?.call(SyncScope.history, 0, historyTotal);
     for (final raw in data.history) {
+      if (isCancelled?.call() ?? false) break;
       final incoming = HistoryItem.fromJson(raw);
       final localId = localIdOf(incoming.sourceId);
-      if (localId == null) continue;
-      final name = _sourceNameOf(localId, incoming.sourceName);
-      final index = _history.indexWhere(
-        (item) => item.sourceId == localId && item.vodId == incoming.vodId,
-      );
-      final remapped = _rekeyHistory(incoming, localId, name);
-      if (index < 0) {
-        _history.add(remapped);
-        addedHistory++;
-      } else if (incoming.updatedAt > _history[index].updatedAt) {
-        // 同一集/同一影片：谁的进度更新就留谁的
-        _history[index] = remapped;
-        updatedHistory++;
+      if (localId != null) {
+        final name = _sourceNameOf(localId, incoming.sourceName);
+        final index = _history.indexWhere(
+          (item) => item.sourceId == localId && item.vodId == incoming.vodId,
+        );
+        final remapped = _rekeyHistory(incoming, localId, name);
+        if (index < 0) {
+          _history.add(remapped);
+          addedHistory++;
+        } else if (incoming.updatedAt > _history[index].updatedAt) {
+          // 同一部片：谁的进度更新就留谁的
+          _history[index] = remapped;
+          updatedHistory++;
+        }
       }
+      historyDone++;
+      onProgress?.call(SyncScope.history, historyDone, historyTotal);
     }
     if (addedHistory > 0) {
       _history.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -778,6 +808,7 @@ class AppState extends ChangeNotifier {
     var adoptedSettings = 0;
     final incomingSettings = data.settings;
     if (incomingSettings.isNotEmpty) {
+      onProgress?.call(SyncScope.settings, 0, 1);
       final theme = incomingSettings['themeMode']?.toString();
       if (_themeMode == ThemeMode.system && theme != null && theme != 'system') {
         final parsed = {'light': ThemeMode.light, 'dark': ThemeMode.dark}[theme];
@@ -820,6 +851,7 @@ class AppState extends ChangeNotifier {
         _skipIntroAd = true;
         adoptedSettings++;
       }
+      onProgress?.call(SyncScope.settings, 1, 1);
     }
 
     if (addedSources > 0 ||
