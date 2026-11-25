@@ -13,10 +13,13 @@ import '../theme/app_palette.dart';
 
 /// 多源聚合搜索。
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key, this.initialKeyword});
+  const SearchPage({super.key, this.initialKeyword, this.focusOnOpen = false});
 
   /// 带关键词进来时（例如首页长按海报）直接搜这一个词，不用用户再输入。
   final String? initialKeyword;
+
+  /// 从首页悬浮按钮进来时打开就聚焦搜索框并弹键盘，省一次点击。
+  final bool focusOnOpen;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -69,6 +72,12 @@ class _SearchPageState extends State<SearchPage> {
       // 等首帧布局完成再发请求，不然 setState 会早于页面挂载
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _search();
+      });
+    } else if (widget.focusOnOpen) {
+      // 首帧之后再 requestFocus：页面还没挂上就聚焦，键盘不会弹出来
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _focusNode.requestFocus();
       });
     }
   }

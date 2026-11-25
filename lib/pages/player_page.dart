@@ -13,6 +13,7 @@ import '../core/hls_probe.dart';
 import '../core/pip.dart';
 import '../core/play_resolver.dart';
 import '../core/screen_wake.dart';
+import '../core/speed_meter.dart';
 import '../models/episode.dart';
 import '../state/app_state.dart';
 import '../theme/app_palette.dart';
@@ -72,8 +73,12 @@ class _PlayerPageState extends State<PlayerPage> {
   int _index = 0;
   double _rate = 1.0;
 
-  /// 是否正处于「长按 2 倍速」状态，松手要还原 [_rate]。
+  /// 是否正处于「长按加速」状态，松手要还原 [_rate]。
   bool _boosting = false;
+
+  /// 实时下载速度（字节/秒），null 表示还没测到。
+  SpeedMeter? _speedMeter;
+  double? _speedBps;
   bool _controlsVisible = true;
   bool _dragging = false;
   double _dragValue = 0;
@@ -304,6 +309,7 @@ class _PlayerPageState extends State<PlayerPage> {
       await controller.play();
       if (!mounted || session != _session) return;
       setState(() => _buffering = false);
+      _startSpeedMeter(resolved);
       await _applyOrientation(controller.value.aspectRatio);
 
       if (seekTo == null) {
@@ -327,6 +333,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _releaseController() async {
+    _stopSpeedMeter();
     final old = _controller;
     final listener = _listener;
     _controller = null;
@@ -471,13 +478,22 @@ class _PlayerPageState extends State<PlayerPage> {
     _showHud(Icons.speed_rounded, '${next.toStringAsFixed(2)}× 倍速', null);
   }
 
-  /// 长按 2 倍速：松开恢复用户自己调的速度。
+  /// 长按加速：松开恢复用户自己调的速度。
+  ///
+  /// 倍率来自设置（默认 2×，可调到 8×），每次长按现取，改完设置不用重进播放页。
+  double get _boostRate => _state?.boostRate ?? kDefaultBoostRate;
+
   void _onLongPressStart(LongPressStartDetails details) {
     if (_controller == null) return;
+    final rate = _boostRate;
     _boosting = true;
     _hideTimer?.cancel();
-    _applySpeed(2.0);
-    _showHud(Icons.fast_forward_rounded, '2.00× 倍速（长按中）', null);
+    _applySpeed(rate);
+    _showHud(
+      Icons.fast_forward_rounded,
+      '${rate.toStringAsFixed(rate % 1 == 0 ? 0 : 2)}× 倍速（长按中）',
+      null,
+    );
   }
 
   void _onLongPressEnd(LongPressEndDetails details) {
@@ -495,6 +511,31 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       await _controller?.setPlaybackSpeed(value);
     } catch (_) {}
+  }
+
+  // ------------------------------------------------------------ 实时下载速度
+
+  void _startSpeedMeter(String url) {
+    _stopSpeedMeter();
+    final state = _state;
+    if (state == null || !state.showSpeedMeter) return;
+    final meter = SpeedMeter(
+      url: url,
+      userAgent: kPlayerUserAgent,
+      onSample: (bps) {
+        if (!mounted) return;
+        setState(() => _speedBps = bps);
+      },
+    );
+    _speedMeter = meter;
+    unawaited(meter.start());
+  }
+
+  void _stopSpeedMeter() {
+    final meter = _speedMeter;
+    _speedMeter = null;
+    if (meter != null) unawaited(meter.stop());
+    _speedBps = null;
   }
 
   void _onVerticalDragStart(DragStartDetails details) {
@@ -1075,6 +1116,7 @@ class _PlayerPageState extends State<PlayerPage> {
           if (_error != null) _buildErrorOverlay(),
           if (!_inPip) ...[
             _buildHud(),
+            if (_state?.showSpeedMeter ?? false) _buildSpeedChip(),
             AnimatedOpacity(
               opacity: _controlsVisible ? 1 : 0,
               duration: const Duration(milliseconds: 220),
@@ -1142,6 +1184,47 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 左上角的实时下载速度小胶囊：只在设置里打开时出现。
+  Widget _buildSpeedChip() {
+    final bps = _speedBps;
+    final text = bps == null ? '↓ 测速中' : '↓ ${_formatSpeed(bps)}';
+    return Positioned(
+      left: 12,
+      top: MediaQuery.paddingOf(context).top + 8,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0x99000000),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_buffering && bps == null) ...[
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 1.4, color: _kTextFaint),
+                ),
+                const SizedBox(width: 5),
+              ],
+              Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 11,
+                  height: 1.1,
+                  color: _kTextDim,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -1443,4 +1526,12 @@ String _formatDuration(Duration value) {
   final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
   final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
   return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+}
+
+/// 速度显示：小于 1 MB/s 用 KB/s，其余用 MB/s，都保留一位小数。
+String _formatSpeed(double bytesPerSecond) {
+  if (bytesPerSecond <= 0) return '0 KB/s';
+  final kb = bytesPerSecond / 1024;
+  if (kb < 1024) return '${kb.toStringAsFixed(kb < 100 ? 1 : 0)} KB/s';
+  return '${(kb / 1024).toStringAsFixed(1)} MB/s';
 }

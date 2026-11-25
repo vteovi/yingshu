@@ -27,6 +27,28 @@ class SourceCheckSummary {
   final int total;
 }
 
+/// 一次备份恢复的结果。
+class BackupRestoreResult {
+  const BackupRestoreResult({
+    required this.sources,
+    required this.favorites,
+    required this.history,
+    required this.historyUpdated,
+    required this.searchKeywords,
+    required this.settings,
+  });
+
+  final int sources;
+  final int favorites;
+  final int history;
+  final int historyUpdated;
+  final int searchKeywords;
+  final int settings;
+
+  int get total =>
+      sources + favorites + history + searchKeywords + settings;
+}
+
 /// 海报大小：决定网格里一行放几张。
 ///
 /// 列数不是写死的，而是按「可用宽度 ÷ 每张的目标宽度」算，
@@ -148,6 +170,15 @@ class AppState extends ChangeNotifier {
   PosterMode _posterMode = PosterMode.portrait;
   PlayerOrientation _playerOrientation = PlayerOrientation.video;
 
+  /// 长按加速倍率：播放页长按画面时临时提到这个速度，默认 2 倍，最大 8 倍。
+  double _boostRate = kDefaultBoostRate;
+
+  /// 首页右上角「海报样式 / 海报大小」按钮是否显示。
+  bool _showViewSwitch = true;
+
+  /// 播放页是否显示实时下载（缓冲）速度。
+  bool _showSpeedMeter = false;
+
   CmsApi get api => _api;
   String get userAgent => _userAgent;
   bool get autoPlayNext => _autoPlayNext;
@@ -157,6 +188,9 @@ class AppState extends ChangeNotifier {
   PosterSize get posterSize => _posterSize;
   PosterMode get posterMode => _posterMode;
   PlayerOrientation get playerOrientation => _playerOrientation;
+  double get boostRate => _boostRate;
+  bool get showViewSwitch => _showViewSwitch;
+  bool get showSpeedMeter => _showSpeedMeter;
 
   /// 兼容旧调用：横向卡片 = 海报样式选了「横向」
   bool get landscapeCard => _posterMode == PosterMode.landscape;
@@ -265,6 +299,11 @@ class AppState extends ChangeNotifier {
     _themeMode = _parseThemeMode(settings['themeMode']);
     _posterSize = PosterSize.parse(settings['posterSize']);
     _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);
+    _boostRate = _parseBoostRate(settings['boostRate']);
+    _showViewSwitch =
+        settings['showViewSwitch'] is bool ? settings['showViewSwitch'] as bool : true;
+    _showSpeedMeter =
+        settings['showSpeedMeter'] is bool ? settings['showSpeedMeter'] as bool : false;
     // 新设置只有 posterMode 一个键；老版本存档里是
     // posterLayout(规整/原始比例) + landscapeCard(开关)，这里做一次迁移
     if (settings.containsKey('posterMode')) {
@@ -295,6 +334,13 @@ class AppState extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// 长按加速倍率：夹在 1.25~8 之间，非法值回落到默认 2 倍。
+  static double _parseBoostRate(Object? raw) {
+    final value = raw is num ? raw.toDouble() : double.tryParse(raw?.toString() ?? '');
+    if (value == null || value.isNaN) return kDefaultBoostRate;
+    return value.clamp(kMinBoostRate, kMaxBoostRate).toDouble();
   }
 
   static ThemeMode _parseThemeMode(Object? raw) {
@@ -668,6 +714,9 @@ class AppState extends ChangeNotifier {
         'autoPlayNext': _autoPlayNext,
         'rememberProgress': _rememberProgress,
         'skipIntroAd': _skipIntroAd,
+        'boostRate': _boostRate,
+        'showViewSwitch': _showViewSwitch,
+        'showSpeedMeter': _showSpeedMeter,
       },
     );
     return scopes == null ? data : data.filtered(scopes);
@@ -851,6 +900,19 @@ class AppState extends ChangeNotifier {
         _skipIntroAd = true;
         adoptedSettings++;
       }
+      if (incomingSettings.containsKey('boostRate')) {
+        final rate = _parseBoostRate(incomingSettings['boostRate']);
+        if (_boostRate == kDefaultBoostRate && rate != kDefaultBoostRate) {
+          _boostRate = rate;
+          adoptedSettings++;
+        }
+      }
+      if (incomingSettings['showSpeedMeter'] is bool &&
+          !_showSpeedMeter &&
+          incomingSettings['showSpeedMeter'] as bool == true) {
+        _showSpeedMeter = true;
+        adoptedSettings++;
+      }
       onProgress?.call(SyncScope.settings, 1, 1);
     }
 
@@ -898,6 +960,155 @@ class AppState extends ChangeNotifier {
       positionMs: item.positionMs,
       durationMs: item.durationMs,
       updatedAt: item.updatedAt,
+    );
+  }
+
+  // ------------------------------------------------------------ 备份 / 恢复
+
+  /// 打包成一份可读的 JSON 备份文本（订阅源、收藏、历史、搜索记录、全部设置）。
+  String exportBackupJson() {
+    final payload = <String, dynamic>{
+      'app': 'yingshu',
+      'kind': 'backup',
+      'version': kAppVersion,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'sources': _sources.map((source) => source.toJson()).toList(growable: false),
+      'favorites': _favorites.map((item) => item.toJson()).toList(growable: false),
+      'history': _history.map((item) => item.toJson()).toList(growable: false),
+      'searchHistory': _searchHistory,
+      'settings': _settingsMap(),
+    };
+    return const JsonEncoder.withIndent('  ').convert(payload);
+  }
+
+  static List<Map<String, dynamic>> _asMapList(Object? raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// 恢复备份：订阅源 / 收藏 / 历史按「只增不覆盖」合并（本机已有的不动，
+  /// 重复的跳过），搜索记录补缺失，设置按备份直接覆盖（恢复的本意就是回到那份配置）。
+  ///
+  /// 失败时抛 [FormatException]，消息可以直接展示给用户。
+  Future<BackupRestoreResult> restoreBackupJson(String raw) async {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      throw const FormatException('这不是一个 JSON 文件，可能选错了文件');
+    }
+    if (decoded is! Map) {
+      throw const FormatException('备份文件的内容不是一个 JSON 对象');
+    }
+    final map = Map<String, dynamic>.from(decoded);
+    final sources = _asMapList(map['sources']);
+    final favorites = _asMapList(map['favorites']);
+    final history = _asMapList(map['history']);
+    final keywords = (map['searchHistory'] is List)
+        ? (map['searchHistory'] as List)
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false)
+        : const <String>[];
+    final settings = map['settings'] is Map
+        ? Map<String, dynamic>.from(map['settings'] as Map)
+        : const <String, dynamic>{};
+
+    if (sources.isEmpty &&
+        favorites.isEmpty &&
+        history.isEmpty &&
+        keywords.isEmpty &&
+        settings.isEmpty) {
+      throw const FormatException('这个文件里没有可恢复的数据');
+    }
+
+    // 数据部分：完全不碰设置，避免和下面的「覆盖设置」打架
+    final merged = await mergeSyncData(LanSyncData(
+      sources: sources,
+      favorites: favorites,
+      history: history,
+    ));
+
+    var appliedSettings = 0;
+    if (settings.isNotEmpty) {
+      final ua = (settings['userAgent'] ?? '').toString().trim();
+      if (ua.isNotEmpty) {
+        _userAgent = ua;
+        _api.userAgent = ua;
+        _fetcher.userAgent = ua;
+        appliedSettings++;
+      }
+      if (settings['autoPlayNext'] is bool) {
+        _autoPlayNext = settings['autoPlayNext'] as bool;
+        appliedSettings++;
+      }
+      if (settings['rememberProgress'] is bool) {
+        _rememberProgress = settings['rememberProgress'] as bool;
+        appliedSettings++;
+      }
+      if (settings['skipIntroAd'] is bool) {
+        _skipIntroAd = settings['skipIntroAd'] as bool;
+        appliedSettings++;
+      }
+      if (settings.containsKey('themeMode')) {
+        _themeMode = _parseThemeMode(settings['themeMode']);
+        appliedSettings++;
+      }
+      if (settings.containsKey('posterSize')) {
+        _posterSize = PosterSize.parse(settings['posterSize']);
+        appliedSettings++;
+      }
+      if (settings.containsKey('posterMode')) {
+        _posterMode = PosterMode.parse(settings['posterMode']);
+        appliedSettings++;
+      }
+      if (settings.containsKey('playerOrientation')) {
+        _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);
+        appliedSettings++;
+      }
+      if (settings.containsKey('boostRate')) {
+        _boostRate = _parseBoostRate(settings['boostRate']);
+        appliedSettings++;
+      }
+      if (settings['showViewSwitch'] is bool) {
+        _showViewSwitch = settings['showViewSwitch'] as bool;
+        appliedSettings++;
+      }
+      if (settings['showSpeedMeter'] is bool) {
+        _showSpeedMeter = settings['showSpeedMeter'] as bool;
+        appliedSettings++;
+      }
+    }
+
+    var addedKeywords = 0;
+    for (final keyword in keywords) {
+      final exists = _searchHistory.any(
+        (item) => item.toLowerCase() == keyword.toLowerCase(),
+      );
+      if (exists) continue;
+      _searchHistory.add(keyword);
+      addedKeywords++;
+    }
+    if (_searchHistory.length > 20) {
+      _searchHistory.removeRange(20, _searchHistory.length);
+    }
+
+    await Future.wait([
+      if (appliedSettings > 0) _persistSettings(),
+      if (addedKeywords > 0) _persistSearchHistory(),
+    ]);
+    notifyListeners();
+
+    return BackupRestoreResult(
+      sources: merged.sources,
+      favorites: merged.favorites,
+      history: merged.history,
+      historyUpdated: merged.historyUpdated,
+      searchKeywords: addedKeywords,
+      settings: appliedSettings,
     );
   }
 
@@ -957,6 +1168,28 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setBoostRate(double value) async {
+    final next = value.clamp(kMinBoostRate, kMaxBoostRate).toDouble();
+    if (_boostRate == next) return;
+    _boostRate = next;
+    await _persistSettings();
+    notifyListeners();
+  }
+
+  Future<void> setShowViewSwitch(bool value) async {
+    if (_showViewSwitch == value) return;
+    _showViewSwitch = value;
+    await _persistSettings();
+    notifyListeners();
+  }
+
+  Future<void> setShowSpeedMeter(bool value) async {
+    if (_showSpeedMeter == value) return;
+    _showSpeedMeter = value;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------- 搜索记录
   Future<void> addSearchHistory(String keyword) async {
     final value = keyword.trim();
@@ -992,16 +1225,22 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  /// 所有可持久化的设置键值。备份、局域网同步、落盘都复用这一份，避免漏键。
+  Map<String, dynamic> _settingsMap() => {
+        'userAgent': _userAgent,
+        'autoPlayNext': _autoPlayNext,
+        'rememberProgress': _rememberProgress,
+        'skipIntroAd': _skipIntroAd,
+        'themeMode': _themeMode.name,
+        'posterSize': _posterSize.key,
+        'posterMode': _posterMode.key,
+        'playerOrientation': _playerOrientation.key,
+        'boostRate': _boostRate,
+        'showViewSwitch': _showViewSwitch,
+        'showSpeedMeter': _showSpeedMeter,
+      };
+
   Future<void> _persistSettings() {
-    return _store.writeMap(LocalStore.keySettings, {
-      'userAgent': _userAgent,
-      'autoPlayNext': _autoPlayNext,
-      'rememberProgress': _rememberProgress,
-      'skipIntroAd': _skipIntroAd,
-      'themeMode': _themeMode.name,
-      'posterSize': _posterSize.key,
-      'posterMode': _posterMode.key,
-      'playerOrientation': _playerOrientation.key,
-    });
+    return _store.writeMap(LocalStore.keySettings, _settingsMap());
   }
 }

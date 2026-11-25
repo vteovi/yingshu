@@ -9,6 +9,34 @@ class FileExport {
 
   static const MethodChannel _channel = MethodChannel('com.yingshu.player/files');
 
+  /// 读取文本文件：安卓走系统「打开文件」(SAF)，桌面走 file_selector 的打开对话框。
+  ///
+  /// 用户取消返回 null；失败抛 [Exception]。
+  static Future<String?> pickText({List<String> extensions = const ['json']}) async {
+    if (Platform.isAndroid) {
+      try {
+        final text = await _channel.invokeMethod<String>('importText', {
+          'mime': extensions.length == 1 && extensions.first == 'json'
+              ? 'application/json'
+              : 'text/plain',
+        });
+        return text;
+      } on MissingPluginException {
+        // 老版本 APK 没有这个通道，退回到下面的桌面逻辑
+      } on PlatformException catch (error) {
+        throw Exception(error.message ?? '读取文件失败');
+      }
+    }
+
+    final file = await openFile(
+      acceptedTypeGroups: [
+        XTypeGroup(label: '备份文件', extensions: extensions),
+      ],
+    );
+    if (file == null) return null;
+    return file.readAsString();
+  }
+
   /// 返回保存结果描述；用户取消时返回 null；失败时抛 [Exception]。
   static Future<String?> saveText({
     required String fileName,

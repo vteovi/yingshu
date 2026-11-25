@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
+import '../core/file_export.dart';
 import '../state/app_state.dart';
 import 'lan_sync_page.dart';
 import 'sources_page.dart';
@@ -154,6 +155,17 @@ class SettingsPage extends StatelessWidget {
                   ],
                 ),
               ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
+                secondary: const Icon(Icons.tune_rounded),
+                title: const Text('显示视图切换按钮'),
+                subtitle: Text(
+                  '首页右上角那个「海报样式 / 海报大小」按钮，不需要就关掉腾出位置',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                value: app.showViewSwitch,
+                onChanged: (value) => app.setShowViewSwitch(value),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -240,12 +252,92 @@ class SettingsPage extends StatelessWidget {
                 value: app.rememberProgress,
                 onChanged: (value) => app.setRememberProgress(value),
               ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.fast_forward_rounded, size: 24),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('长按加速倍率', style: TextStyle(fontSize: 15)),
+                              const SizedBox(height: 2),
+                              Text(
+                                '长按画面时临时加速到这一档，松手回到正常速度（默认 2×，最高 8×）',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: context.palette.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          '${_formatRate(app.boostRate)}×',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      min: kMinBoostRate,
+                      max: kMaxBoostRate,
+                      divisions: ((kMaxBoostRate - kMinBoostRate) / 0.25).round(),
+                      value: app.boostRate,
+                      label: '${_formatRate(app.boostRate)}×',
+                      onChanged: (value) => app.setBoostRate(value),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              SwitchListTile(
+                secondary: const Icon(Icons.speed_rounded),
+                title: const Text('显示实时下载速度'),
+                subtitle: Text(
+                  '播放页左上角显示当前拉流速度（每隔几秒探测一次片源，会略微多占一点流量）',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                value: app.showSpeedMeter,
+                onChanged: (value) => app.setShowSpeedMeter(value),
+              ),
             ],
           ),
           const SizedBox(height: 20),
           _SectionTitle('数据'),
           _Card(
             children: [
+              ListTile(
+                leading: const Icon(Icons.backup_outlined),
+                title: const Text('备份数据'),
+                subtitle: Text(
+                  '把订阅源、收藏、历史、搜索记录和设置导出成一个 JSON 文件，自己选保存位置',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                trailing: Icon(Icons.ios_share_rounded, color: context.palette.textFaint),
+                onTap: () => _backup(context, app),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.settings_backup_restore_rounded),
+                title: const Text('恢复数据'),
+                subtitle: Text(
+                  '从备份文件恢复：数据与现有内容合并（不覆盖），设置按备份还原',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                trailing: Icon(Icons.file_open_outlined, color: context.palette.textFaint),
+                onTap: () => _restore(context, app),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: const Icon(Icons.devices_rounded),
                 title: const Text('局域网设备同步'),
@@ -408,6 +500,84 @@ class SettingsPage extends StatelessWidget {
     if (result != null) await app.setUserAgent(result);
   }
 
+  Future<void> _backup(BuildContext context, AppState app) async {
+    final now = DateTime.now();
+    final stamp = '${now.year}'
+        '${now.month.toString().padLeft(2, '0')}'
+        '${now.day.toString().padLeft(2, '0')}-'
+        '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}';
+    try {
+      final content = app.exportBackupJson();
+      final saved = await FileExport.saveText(
+        fileName: 'yingshu-backup-$stamp.json',
+        content: content,
+      );
+      if (!context.mounted) return;
+      if (saved == null) return; // 用户取消了保存
+      _snack(context, '备份已保存（订阅源 ${app.sources.length} 个、收藏 ${app.favorites.length} 条）');
+    } catch (error) {
+      if (!context.mounted) return;
+      _snack(context, '备份失败：${_describeError(error)}');
+    }
+  }
+
+  Future<void> _restore(BuildContext context, AppState app) async {
+    String? content;
+    try {
+      content = await FileExport.pickText();
+    } catch (error) {
+      if (!context.mounted) return;
+      _snack(context, '打开文件失败：${_describeError(error)}');
+      return;
+    }
+    if (content == null || !context.mounted) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('恢复数据'),
+        content: const Text(
+          '订阅源、收藏、历史、搜索记录会和本机现有内容合并（本机已有的保留，重复的跳过）；'
+          '设置会按备份文件还原。确定继续吗？',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('恢复')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final result = await app.restoreBackupJson(content);
+      if (!context.mounted) return;
+      _snack(
+        context,
+        result.total == 0
+            ? '备份里的内容本机都已经有了，没有新增'
+            : '恢复完成：新增订阅源 ${result.sources} 个、收藏 ${result.favorites} 条、'
+                '历史 ${result.history} 条、搜索记录 ${result.searchKeywords} 条，'
+                '应用设置 ${result.settings} 项',
+      );
+    } on FormatException catch (error) {
+      if (!context.mounted) return;
+      _snack(context, '恢复失败：${error.message}');
+    } catch (error) {
+      if (!context.mounted) return;
+      _snack(context, '恢复失败：${_describeError(error)}');
+    }
+  }
+
+  void _snack(BuildContext context, String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 4)));
+  }
+
+  String _describeError(Object error) =>
+      error.toString().replaceFirst('Exception: ', '');
+
   Future<void> _confirm(
     BuildContext context,
     String title,
@@ -427,6 +597,14 @@ class SettingsPage extends StatelessWidget {
     );
     if (ok == true) await action();
   }
+}
+
+/// 倍率显示：整数倍不带小数，其余保留两位有效的小数（1.25×、2×、3.5×）。
+String _formatRate(double value) {
+  final rounded = value.toStringAsFixed(2);
+  if (rounded.endsWith('.00')) return rounded.substring(0, rounded.length - 3);
+  if (rounded.endsWith('0')) return rounded.substring(0, rounded.length - 1);
+  return rounded;
 }
 
 class _SectionTitle extends StatelessWidget {

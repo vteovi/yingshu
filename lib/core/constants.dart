@@ -1,6 +1,6 @@
 const String kAppName = '影枢';
 const String kAppNameEn = 'CineHub';
-const String kAppVersion = '0.25.1';
+const String kAppVersion = '0.26.0';
 const String kAppPackage = 'com.yingshu.player';
 
 /// 部分苹果CMS站点会校验 UA，默认伪装成桌面浏览器。
@@ -47,3 +47,8 @@ const String kPlayerUserAgent =
 
 /// 采集接口常用后缀，供添加源时的输入提示。
 const String kApiHint = 'https://your-domain.com/api.php/provide/vod/';
+
+/// 长按加速：默认 2 倍，最低 1.25 倍（再低不如直接调速），最高 8 倍。
+const double kDefaultBoostRate = 2.0;
+const double kMinBoostRate = 1.25;
+const double kMaxBoostRate = 8.0;

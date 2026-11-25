@@ -25,6 +25,10 @@ class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private val exportRequestCode = 5001
 
+    /** 系统「打开文件」流程的挂起回调：等用户选完文件再读文本。 */
+    private var importResult: MethodChannel.Result? = null
+    private val importRequestCode = 5002
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, externalChannelName)
@@ -73,6 +77,10 @@ class MainActivity : FlutterActivity() {
                     } else {
                         startExport(fileName, mime, content, result)
                     }
+                }
+                "importText" -> {
+                    val mime = call.argument<String>("mime") ?: "application/json"
+                    startImport(mime, result)
                 }
                 else -> result.notImplemented()
             }
@@ -124,9 +132,51 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /** 打开系统文件选择器读一个文本文件（备份恢复用）。 */
+    private fun startImport(mime: String, result: MethodChannel.Result) {
+        importResult?.success(null)
+        importResult = result
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                // 有些文件管理器给 json 文件打的 MIME 是 octet-stream，放宽成任意类型
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(mime, "text/plain", "application/json"))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivityForResult(intent, importRequestCode)
+        } catch (e: Exception) {
+            importResult = null
+            result.error("failed", e.message ?: "cannot open system file picker", null)
+        }
+    }
+
     @Deprecated("用于兼容旧版 Activity 结果回调")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == importRequestCode) {
+            val callback = importResult
+            importResult = null
+            if (callback == null) return
+            val uri = data?.data
+            if (resultCode != RESULT_OK || uri == null) {
+                callback.success(null) // 用户取消
+                return
+            }
+            try {
+                val text = contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes().toString(Charsets.UTF_8)
+                }
+                if (text == null) {
+                    callback.error("failed", "无法读取这个文件", null)
+                } else {
+                    callback.success(text)
+                }
+            } catch (e: Exception) {
+                callback.error("failed", e.message ?: "read failed", null)
+            }
+            return
+        }
         if (requestCode != exportRequestCode) return
         val callback = pendingResult
         val text = pendingText

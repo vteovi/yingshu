@@ -5,6 +5,7 @@ import '../core/image_util.dart';
 import '../models/media_record.dart';
 import '../models/vod.dart';
 import '../state/app_state.dart';
+import '../widgets/count_title.dart';
 import '../widgets/state_views.dart';
 import '../widgets/vod_card.dart';
 import '../widgets/vod_grid.dart';
@@ -20,7 +21,7 @@ class FavoritesPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('收藏'),
+        title: CountTitle(title: '收藏', count: favorites.length, unit: '部'),
         actions: [
           if (favorites.isNotEmpty)
             PopupMenuButton<String>(

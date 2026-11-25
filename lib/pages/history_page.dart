@@ -5,6 +5,7 @@ import '../core/image_util.dart';
 import '../models/media_record.dart';
 import '../models/vod.dart';
 import '../state/app_state.dart';
+import '../widgets/count_title.dart';
 import '../widgets/state_views.dart';
 import '../widgets/vod_card.dart';
 import '../widgets/vod_grid.dart';
@@ -21,7 +22,7 @@ class HistoryPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('观看历史'),
+        title: CountTitle(title: '观看历史', count: history.length, unit: '部'),
         actions: [
           if (history.isNotEmpty)
             PopupMenuButton<String>(

@@ -105,21 +105,13 @@ class _HomePageState extends State<HomePage> {
           onManage: () => _openSources(context),
         ),
         actions: [
-          IconButton(
-            tooltip: '聚合搜索',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SearchPage()),
-              );
-            },
-            icon: const Icon(Icons.search),
-          ),
-          _PosterModeButton(
-            mode: app.posterMode,
-            onChanged: app.setPosterMode,
-            size: app.posterSize,
-            onSizeChanged: app.setPosterSize,
-          ),
+          if (app.showViewSwitch)
+            _PosterModeButton(
+              mode: app.posterMode,
+              onChanged: app.setPosterMode,
+              size: app.posterSize,
+              onSizeChanged: app.setPosterSize,
+            ),
           IconButton(
             tooltip: '订阅源管理',
             onPressed: () => _openSources(context),
@@ -127,6 +119,16 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(width: 4),
         ],
+      ),
+      // 悬浮搜索：不用去够右上角，拇指直接就能按到，进去就是输入状态
+      floatingActionButton: FloatingActionButton.small(
+        tooltip: '搜索影片',
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SearchPage(focusOnOpen: true)),
+          );
+        },
+        child: const Icon(Icons.search, size: 22),
       ),
       body: source == null
           ? EmptyView(
