@@ -120,11 +120,42 @@ class _Dest {
 }
 
 /// 微信风格底部标签栏：没有选中胶囊/背景色块，只靠图标与文字变色区分当前页。
-class _WeChatTabBar extends StatelessWidget {
+///
+/// 老手机上「点几次点不中」的两个根因都在这里解决：
+/// 1. 用 InkWell 的点击判定要「按下到抬起位移不超过 18dp」，电阻屏/低端触屏一抖
+///    就被判成拖拽，tap 直接丢弃 —— 改成 Listener 监听 onPointerDown，
+///    手指落下即切换，不再做位移判定，根本不给它误判的机会。
+/// 2. 系统手势条所在的最底下一截是「看得见点不到」的死区 —— 现在每格自己承担
+///    留白并且最少留 6dp，图标/文字整体抬高，手指落在最底部也不会只点到系统手势区。
+class _WeChatTabBar extends StatefulWidget {
   const _WeChatTabBar({required this.index, required this.onTap});
 
   final int index;
   final ValueChanged<int> onTap;
+
+  @override
+  State<_WeChatTabBar> createState() => _WeChatTabBarState();
+}
+
+class _WeChatTabBarState extends State<_WeChatTabBar> {
+  /// 当前按下高亮的格子；null 表示没有手指在上面。
+  int? _pressedIndex;
+
+  /// 正在跟踪的手指。多指同时按只认第一根，避免一次触摸切两次页。
+  int? _activePointer;
+
+  void _handleDown(int i, PointerDownEvent event) {
+    if (_activePointer != null) return;
+    _activePointer = event.pointer;
+    setState(() => _pressedIndex = i);
+    widget.onTap(i);
+  }
+
+  void _handleUp(PointerEvent event) {
+    if (event.pointer != _activePointer) return;
+    _activePointer = null;
+    if (mounted) setState(() => _pressedIndex = null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +165,10 @@ class _WeChatTabBar extends StatelessWidget {
     // 灰字→浅蓝看着像"变淡"而不是"变蓝"。这里直接给饱和蓝。
     final selectedColor = isDark ? const Color(0xFF4D8DFF) : const Color(0xFF2F6BFF);
     final unselectedColor = palette.textSecondary;
+    final systemInset = MediaQuery.paddingOf(context).bottom;
+    // 最少留 6dp：有些老机器的系统栏高度上报不准（给 0 或偏小），
+    // 图标就会贴着物理底边，正好压在系统手势区内。
+    final bottomInset = systemInset < 6 ? 6.0 : systemInset;
 
     return Container(
       color: palette.surface,
@@ -141,36 +176,37 @@ class _WeChatTabBar extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(top: BorderSide(color: palette.border, width: 0.8)),
         ),
-        // 关键：整条都做成热区。以前 SafeArea 把系统手势条那段留白挡在外面，
-        // 手指落在最下面那一截是「死区」，小屏手机拇指刚好压在那儿，就点不中。
-        // 现在把留白放在每个格子的内容里，格子本身铺满整条高度。
+        // 整条都是热区：留白放在每格内部，格子本身铺满整条高度。
         child: SizedBox(
-          height: 54 + MediaQuery.paddingOf(context).bottom,
+          height: 54 + bottomInset,
           child: Row(
             children: [
               for (var i = 0; i < _RootShellState._dests.length; i++)
                 Expanded(
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: InkWell(
-                      onTap: () => onTap(i),
-                      // 不要胶囊、不要水波纹，但按下时给一点点高亮，
-                      // 让人知道这一下确实点到了
-                      splashFactory: NoSplash.splashFactory,
-                      highlightColor: selectedColor.withValues(alpha: 0.10),
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          bottom: MediaQuery.paddingOf(context).bottom,
-                        ),
+                  child: Semantics(
+                    button: true,
+                    selected: i == widget.index,
+                    label: _RootShellState._dests[i].label,
+                    child: Listener(
+                      // opaque：连留白那一段也算在自己的命中区域里
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (event) => _handleDown(i, event),
+                      onPointerUp: _handleUp,
+                      onPointerCancel: _handleUp,
+                      child: Container(
+                        color: _pressedIndex == i
+                            ? selectedColor.withValues(alpha: 0.10)
+                            : Colors.transparent,
+                        padding: EdgeInsets.only(bottom: bottomInset),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              i == index
+                              i == widget.index
                                   ? _RootShellState._dests[i].selectedIcon
                                   : _RootShellState._dests[i].icon,
                               size: 23,
-                              color: i == index ? selectedColor : unselectedColor,
+                              color: i == widget.index ? selectedColor : unselectedColor,
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -178,8 +214,9 @@ class _WeChatTabBar extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 11,
                                 height: 1.1,
-                                fontWeight: i == index ? FontWeight.w600 : FontWeight.w400,
-                                color: i == index ? selectedColor : unselectedColor,
+                                fontWeight:
+                                    i == widget.index ? FontWeight.w600 : FontWeight.w400,
+                                color: i == widget.index ? selectedColor : unselectedColor,
                               ),
                             ),
                           ],
