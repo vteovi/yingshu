@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_palette.dart';
 import 'favorites_page.dart';
@@ -24,12 +25,96 @@ class _RootShellState extends State<RootShell> {
   /// 小屏手机上第一帧要做的活太多，点标签会出现「点了没反应」的卡顿感。
   final Set<int> _visited = {0};
 
+  /// 上一次在首页按返回的时间：只有在这之后的 2 秒内再按一次才真的退出。
+  DateTime? _lastBackPressed;
+
+  /// 「再按一次退出」的浮动提示，两秒后自己消失。
+  OverlayEntry? _exitHint;
+
   static const List<_Dest> _dests = [
     _Dest(Icons.home_outlined, Icons.home, '首页'),
     _Dest(Icons.favorite_border, Icons.favorite, '收藏'),
     _Dest(Icons.history, Icons.history, '历史'),
     _Dest(Icons.settings_outlined, Icons.settings, '设置'),
   ];
+
+  /// 返回键：不在首页先回首页；在首页要连按两次才退出。
+  ///
+  /// 详情页、搜索页这些用 Navigator 压在上面的页面由它们自己 pop，
+  /// 这里只管「主框架」这一层，所以一路返回总能落到首页。
+  void _onBackPressed() {
+    if (_index != 0) {
+      setState(() {
+        _index = 0;
+        _visited.add(0);
+      });
+      return;
+    }
+    final now = DateTime.now();
+    final last = _lastBackPressed;
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      // 安卓走系统退出；桌面端这套接口是空实现，不会误杀窗口
+      SystemNavigator.pop();
+      return;
+    }
+    _lastBackPressed = now;
+    _showExitHint();
+  }
+
+  /// 用 Overlay 自己画一个提示，不用 SnackBar：
+  /// 各页里都有嵌套 Scaffold，SnackBar 会同时挂到多个 Scaffold 上叠着显示。
+  void _showExitHint() {
+    _exitHint?.remove();
+    _exitHint = null;
+    final entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        left: 0,
+        right: 0,
+        bottom: 96,
+        child: IgnorePointer(
+          child: Center(
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.78),
+              borderRadius: BorderRadius.circular(20),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                child: Text(
+                  '再按一次返回键退出影枢',
+                  style: TextStyle(fontSize: 13, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    _exitHint = entry;
+    Overlay.of(context, rootOverlay: true).insert(entry);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (_exitHint == entry) {
+        _exitHint = null;
+        entry.remove();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _exitHint?.remove();
+    _exitHint = null;
+    super.dispose();
+  }
+
+  Widget _withBackGuard(Widget child) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _onBackPressed();
+      },
+      child: child,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,70 +127,86 @@ class _RootShellState extends State<RootShell> {
 
     final pages = [
       const HomePage(),
-      if (_visited.contains(1)) const FavoritesPage() else const SizedBox.shrink(),
-      if (_visited.contains(2)) const HistoryPage() else const SizedBox.shrink(),
-      if (_visited.contains(3)) const SettingsPage() else const SizedBox.shrink(),
+      if (_visited.contains(1))
+        const FavoritesPage()
+      else
+        const SizedBox.shrink(),
+      if (_visited.contains(2))
+        const HistoryPage()
+      else
+        const SizedBox.shrink(),
+      if (_visited.contains(3))
+        const SettingsPage()
+      else
+        const SizedBox.shrink(),
     ];
 
     if (!wide) {
-      return Scaffold(
-        body: IndexedStack(index: _index, children: pages),
-        bottomNavigationBar: _WeChatTabBar(
-          index: _index,
-          onTap: (value) {
-            setState(() {
-              _index = value;
-              _visited.add(value);
-            });
-          },
+      return _withBackGuard(
+        Scaffold(
+          body: IndexedStack(index: _index, children: pages),
+          bottomNavigationBar: _WeChatTabBar(
+            index: _index,
+            onTap: (value) {
+              setState(() {
+                _index = value;
+                _visited.add(value);
+              });
+            },
+          ),
         ),
       );
     }
 
-    return Scaffold(
-      body: Row(
-        children: [
-          // 侧边栏瘦身：收起的竖条 64（默认 72），展开状态 148（默认 180 太宽）
-          SizedBox(
-            width: extended ? 180 : 72,
-            child: NavigationRail(
-              selectedIndex: _index,
-              extended: extended,
-              labelType: extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
-              // 宽度用 Material 默认值：之前收到 64 太窄，图标/文字的点击热区挤在一起，
-              // 点边缘常常只出动画不切换。72 / 180 是踩过坑后的稳妥尺寸。
-              minWidth: 72,
-              minExtendedWidth: 180,
-              // 和手机端一致：不要选中胶囊，只靠图标/文字变色
-              indicatorColor: Colors.transparent,
-              selectedIconTheme: IconThemeData(size: 22, color: railBlue),
-              unselectedIconTheme: IconThemeData(size: 22, color: context.palette.textSecondary),
-              selectedLabelTextStyle: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: railBlue,
+    return _withBackGuard(
+      Scaffold(
+        body: Row(
+          children: [
+            // 侧边栏瘦身：收起的竖条 64（默认 72），展开状态 148（默认 180 太宽）
+            SizedBox(
+              width: extended ? 180 : 72,
+              child: NavigationRail(
+                selectedIndex: _index,
+                extended: extended,
+                labelType: extended
+                    ? NavigationRailLabelType.none
+                    : NavigationRailLabelType.all,
+                // 宽度用 Material 默认值：之前收到 64 太窄，图标/文字的点击热区挤在一起，
+                // 点边缘常常只出动画不切换。72 / 180 是踩过坑后的稳妥尺寸。
+                minWidth: 72,
+                minExtendedWidth: 180,
+                // 和手机端一致：不要选中胶囊，只靠图标/文字变色
+                indicatorColor: Colors.transparent,
+                selectedIconTheme: IconThemeData(size: 22, color: railBlue),
+                unselectedIconTheme: IconThemeData(
+                    size: 22, color: context.palette.textSecondary),
+                selectedLabelTextStyle: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: railBlue,
+                ),
+                unselectedLabelTextStyle: TextStyle(
+                  fontSize: 12,
+                  color: context.palette.textSecondary,
+                ),
+                onDestinationSelected: (value) => setState(() {
+                  _index = value;
+                  _visited.add(value);
+                }),
+                destinations: [
+                  for (final dest in _dests)
+                    NavigationRailDestination(
+                      icon: Icon(dest.icon, size: 22),
+                      selectedIcon: Icon(dest.selectedIcon, size: 22),
+                      label: Text(dest.label),
+                    ),
+                ],
               ),
-              unselectedLabelTextStyle: TextStyle(
-                fontSize: 12,
-                color: context.palette.textSecondary,
-              ),
-              onDestinationSelected: (value) => setState(() {
-                _index = value;
-                _visited.add(value);
-              }),
-              destinations: [
-                for (final dest in _dests)
-                  NavigationRailDestination(
-                    icon: Icon(dest.icon, size: 22),
-                    selectedIcon: Icon(dest.selectedIcon, size: 22),
-                    label: Text(dest.label),
-                  ),
-              ],
             ),
-          ),
-          const VerticalDivider(width: 1, thickness: 1),
-          Expanded(child: IndexedStack(index: _index, children: pages)),
-        ],
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(child: IndexedStack(index: _index, children: pages)),
+          ],
+        ),
       ),
     );
   }
@@ -163,7 +264,8 @@ class _WeChatTabBarState extends State<_WeChatTabBar> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // 不用 colorScheme.primary：深色主题里它被调得很浅（#7FA6FF），
     // 灰字→浅蓝看着像"变淡"而不是"变蓝"。这里直接给饱和蓝。
-    final selectedColor = isDark ? const Color(0xFF4D8DFF) : const Color(0xFF2F6BFF);
+    final selectedColor =
+        isDark ? const Color(0xFF4D8DFF) : const Color(0xFF2F6BFF);
     final unselectedColor = palette.textSecondary;
     final systemInset = MediaQuery.paddingOf(context).bottom;
     // 最少留 6dp：有些老机器的系统栏高度上报不准（给 0 或偏小），
@@ -206,7 +308,9 @@ class _WeChatTabBarState extends State<_WeChatTabBar> {
                                   ? _RootShellState._dests[i].selectedIcon
                                   : _RootShellState._dests[i].icon,
                               size: 23,
-                              color: i == widget.index ? selectedColor : unselectedColor,
+                              color: i == widget.index
+                                  ? selectedColor
+                                  : unselectedColor,
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -214,9 +318,12 @@ class _WeChatTabBarState extends State<_WeChatTabBar> {
                               style: TextStyle(
                                 fontSize: 11,
                                 height: 1.1,
-                                fontWeight:
-                                    i == widget.index ? FontWeight.w600 : FontWeight.w400,
-                                color: i == widget.index ? selectedColor : unselectedColor,
+                                fontWeight: i == widget.index
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: i == widget.index
+                                    ? selectedColor
+                                    : unselectedColor,
                               ),
                             ),
                           ],
