@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
 import '../state/app_state.dart';
+import 'lan_sync_page.dart';
 import 'sources_page.dart';
 import '../theme/app_palette.dart';
 
@@ -245,6 +246,19 @@ class SettingsPage extends StatelessWidget {
           _SectionTitle('数据'),
           _Card(
             children: [
+              ListTile(
+                leading: const Icon(Icons.devices_rounded),
+                title: const Text('局域网设备同步'),
+                subtitle: Text(
+                  '同一 Wi‑Fi 下把订阅源、收藏、历史、设置合并到另一台（只增不覆盖）',
+                  style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                ),
+                trailing: Icon(Icons.chevron_right, color: context.palette.textFaint),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const LanSyncPage()),
+                ),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: const Icon(Icons.history),
                 title: const Text('清空观看历史'),

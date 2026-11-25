@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
+import '../core/lan_sync.dart';
 import '../data/cms_api.dart';
 import '../data/local_store.dart';
 import '../data/subscription.dart';
@@ -648,6 +649,223 @@ class AppState extends ChangeNotifier {
     return _store.writeList(
       LocalStore.keyHistory,
       _history.map((h) => h.toJson()).toList(growable: false),
+    );
+  }
+
+  // ------------------------------------------------------------ 局域网同步
+
+  /// 打包本机数据，给另一台设备取用。
+  LanSyncData exportSyncData() => LanSyncData(
+        sources: _sources.map((source) => source.toJson()).toList(growable: false),
+        favorites: _favorites.map((item) => item.toJson()).toList(growable: false),
+        history: _history.map((item) => item.toJson()).toList(growable: false),
+        settings: {
+          'themeMode': _themeMode.name,
+          'posterSize': _posterSize.key,
+          'posterMode': _posterMode.key,
+          'playerOrientation': _playerOrientation.key,
+          'autoPlayNext': _autoPlayNext,
+          'rememberProgress': _rememberProgress,
+          'skipIntroAd': _skipIntroAd,
+        },
+      );
+
+  /// 源的身份标识：优先用接口地址，地址为空时退回名字。
+  static String _syncSourceKey(String api, String name) {
+    final normalized = api.trim().toLowerCase().replaceAll(RegExp(r'/+$'), '');
+    return normalized.isEmpty ? 'name:${name.trim().toLowerCase()}' : normalized;
+  }
+
+  CmsSource? _findSourceBySyncKey(String key) {
+    for (final source in _sources) {
+      if (_syncSourceKey(source.api, source.name) == key) return source;
+    }
+    return null;
+  }
+
+  /// 合并另一台设备的数据：**只增不覆盖**。
+  ///
+  /// - 源：按接口地址去重，本机没有的才追加到末尾，同 id 冲突时换新 id；
+  /// - 收藏 / 历史：先把对端的 sourceId 映射到本机对应源的 id，再按
+  ///   （源, 影片）去重，重复的跳过；历史若对端进度更新则更新断点，
+  ///   否则保留本机那条。
+  Future<SyncMergeResult> mergeSyncData(LanSyncData data) async {
+    final idMap = <String, String>{};
+    var addedSources = 0;
+
+    // ---- 1. 源
+    for (final raw in data.sources) {
+      final incoming = CmsSource.fromJson(raw);
+      if (incoming.api.trim().isEmpty) continue;
+      final key = _syncSourceKey(incoming.api, incoming.name);
+      final existing = _findSourceBySyncKey(key);
+      if (existing != null) {
+        idMap[incoming.id] = existing.id;
+        continue;
+      }
+      final existingIds = _sources.map((source) => source.id).toSet();
+      final id = existingIds.contains(incoming.id) ? CmsSource.newSourceId() : incoming.id;
+      _sources.add(CmsSource(
+        id: id,
+        name: incoming.name,
+        api: incoming.api.trim(),
+        enabled: incoming.enabled,
+        note: incoming.note,
+      ));
+      idMap[incoming.id] = id;
+      addedSources++;
+    }
+
+    String? localIdOf(String incomingSourceId) => idMap[incomingSourceId];
+
+    // ---- 2. 收藏
+    final favoriteKeys = <String>{
+      for (final item in _favorites) '${item.sourceId}|${item.vodId}',
+    };
+    var addedFavorites = 0;
+    for (final raw in data.favorites) {
+      final incoming = FavoriteItem.fromJson(raw);
+      final localId = localIdOf(incoming.sourceId);
+      if (localId == null) continue; // 来源不在本机（对端那个源地址为空），跳过
+      final key = '$localId|${incoming.vodId}';
+      if (favoriteKeys.contains(key)) continue;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      _favorites.add(FavoriteItem(
+        sourceId: localId,
+        sourceName: _sourceNameOf(localId, incoming.sourceName),
+        vodId: incoming.vodId,
+        name: incoming.name,
+        pic: incoming.pic,
+        remarks: incoming.remarks,
+        savedAt: incoming.savedAt > 0 ? incoming.savedAt : now,
+      ));
+      favoriteKeys.add(key);
+      addedFavorites++;
+    }
+    if (addedFavorites > 0) {
+      _favorites.sort((a, b) => b.savedAt.compareTo(a.savedAt));
+    }
+
+    // ---- 3. 历史
+    var addedHistory = 0;
+    var updatedHistory = 0;
+    for (final raw in data.history) {
+      final incoming = HistoryItem.fromJson(raw);
+      final localId = localIdOf(incoming.sourceId);
+      if (localId == null) continue;
+      final name = _sourceNameOf(localId, incoming.sourceName);
+      final index = _history.indexWhere(
+        (item) => item.sourceId == localId && item.vodId == incoming.vodId,
+      );
+      final remapped = _rekeyHistory(incoming, localId, name);
+      if (index < 0) {
+        _history.add(remapped);
+        addedHistory++;
+      } else if (incoming.updatedAt > _history[index].updatedAt) {
+        // 同一集/同一影片：谁的进度更新就留谁的
+        _history[index] = remapped;
+        updatedHistory++;
+      }
+    }
+    if (addedHistory > 0) {
+      _history.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    }
+    if (_history.length > 200) {
+      _history.removeRange(200, _history.length);
+    }
+
+    // ---- 4. 设置：只补本机还是默认值的项，用户改过的一律不动
+    var adoptedSettings = 0;
+    final incomingSettings = data.settings;
+    if (incomingSettings.isNotEmpty) {
+      final theme = incomingSettings['themeMode']?.toString();
+      if (_themeMode == ThemeMode.system && theme != null && theme != 'system') {
+        final parsed = {'light': ThemeMode.light, 'dark': ThemeMode.dark}[theme];
+        if (parsed != null) {
+          _themeMode = parsed;
+          adoptedSettings++;
+        }
+      }
+      final size = PosterSize.parse(incomingSettings['posterSize']);
+      if (_posterSize == PosterSize.medium && size != PosterSize.medium) {
+        _posterSize = size;
+        adoptedSettings++;
+      }
+      final mode = PosterMode.parse(incomingSettings['posterMode']);
+      if (_posterMode == PosterMode.portrait && mode != PosterMode.portrait) {
+        _posterMode = mode;
+        adoptedSettings++;
+      }
+      final orientation = PlayerOrientation.parse(incomingSettings['playerOrientation']);
+      if (_playerOrientation == PlayerOrientation.video &&
+          orientation != PlayerOrientation.video) {
+        _playerOrientation = orientation;
+        adoptedSettings++;
+      }
+      if (incomingSettings['autoPlayNext'] is bool &&
+          _autoPlayNext &&
+          incomingSettings['autoPlayNext'] as bool == false) {
+        _autoPlayNext = false;
+        adoptedSettings++;
+      }
+      if (incomingSettings['rememberProgress'] is bool &&
+          _rememberProgress &&
+          incomingSettings['rememberProgress'] as bool == false) {
+        _rememberProgress = false;
+        adoptedSettings++;
+      }
+      if (incomingSettings['skipIntroAd'] is bool &&
+          !_skipIntroAd &&
+          incomingSettings['skipIntroAd'] as bool == true) {
+        _skipIntroAd = true;
+        adoptedSettings++;
+      }
+    }
+
+    if (addedSources > 0 ||
+        addedFavorites > 0 ||
+        addedHistory > 0 ||
+        updatedHistory > 0 ||
+        adoptedSettings > 0) {
+      await Future.wait([
+        _persistSources(),
+        _persistFavorites(),
+        _persistHistory(),
+        if (adoptedSettings > 0) _persistSettings(),
+      ]);
+      notifyListeners();
+    }
+
+    return SyncMergeResult(
+      sources: addedSources,
+      favorites: addedFavorites,
+      history: addedHistory,
+      historyUpdated: updatedHistory,
+      settings: adoptedSettings,
+    );
+  }
+
+  String _sourceNameOf(String sourceId, String fallback) {
+    for (final source in _sources) {
+      if (source.id == sourceId) return source.name;
+    }
+    return fallback;
+  }
+
+  HistoryItem _rekeyHistory(HistoryItem item, String sourceId, String sourceName) {
+    return HistoryItem(
+      sourceId: sourceId,
+      sourceName: sourceName,
+      vodId: item.vodId,
+      name: item.name,
+      pic: item.pic,
+      groupName: item.groupName,
+      episodeName: item.episodeName,
+      episodeUrl: item.episodeUrl,
+      episodeIndex: item.episodeIndex,
+      positionMs: item.positionMs,
+      durationMs: item.durationMs,
+      updatedAt: item.updatedAt,
     );
   }
 
