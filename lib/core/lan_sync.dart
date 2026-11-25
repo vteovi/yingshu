@@ -243,7 +243,7 @@ class LanSyncData {
       );
 
   Map<String, dynamic> toJson() => {
-        'app': 'yingshu',
+        'app': 'cinehub',
         'kind': 'lan-sync',
         'version': 2,
         'sources': sources,

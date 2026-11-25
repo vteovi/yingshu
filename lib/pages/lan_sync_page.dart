@@ -72,7 +72,7 @@ class _LanSyncPageState extends State<LanSyncPage>
   @override
   void initState() {
     super.initState();
-    _deviceName = '影枢-${Random().nextInt(9000) + 1000}';
+    _deviceName = 'CineHub-${Random().nextInt(9000) + 1000}';
     _tabs = TabController(length: 2, vsync: this);
     _tabs.addListener(_onTabChanged);
     LanDiscovery.getLocalIp().then((ip) {

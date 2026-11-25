@@ -348,7 +348,7 @@ class SourcesPage extends StatelessWidget {
       return;
     }
     final data = jsonEncode(app.sources.map((s) => s.toJson()).toList());
-    final name = 'yingshu-sources-${DateTime.now().millisecondsSinceEpoch}.json';
+    final name = 'CineHub-sources-${DateTime.now().millisecondsSinceEpoch}.json';
 
     String? saved;
     var failed = false;

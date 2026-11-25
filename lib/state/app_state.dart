@@ -968,7 +968,7 @@ class AppState extends ChangeNotifier {
   /// 打包成一份可读的 JSON 备份文本（订阅源、收藏、历史、搜索记录、全部设置）。
   String exportBackupJson() {
     final payload = <String, dynamic>{
-      'app': 'yingshu',
+      'app': 'cinehub',
       'kind': 'backup',
       'version': kAppVersion,
       'exportedAt': DateTime.now().toIso8601String(),

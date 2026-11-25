@@ -510,7 +510,7 @@ class SettingsPage extends StatelessWidget {
     try {
       final content = app.exportBackupJson();
       final saved = await FileExport.saveText(
-        fileName: 'yingshu-backup-$stamp.json',
+        fileName: 'CineHub-backup-$stamp.json',
         content: content,
       );
       if (!context.mounted) return;
