@@ -452,7 +452,7 @@ class SettingsPage extends StatelessWidget {
                 leading: Icon(Icons.movie_outlined),
                 title: Text('播放内核'),
                 trailing: Text(
-                  'video_player / ExoPlayer',
+                  '安卓 ExoPlayer / 桌面 libmpv',
                   style:
                       TextStyle(fontSize: 12, color: context.palette.textFaint),
                 ),

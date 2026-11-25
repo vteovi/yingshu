@@ -120,7 +120,9 @@ class _RootShellState extends State<RootShell> {
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     final wide = width >= 900;
-    final extended = width >= 1200;
+    // 展开（图标 + 横排文字）只在超宽屏才用；一般 1280/1366 的笔记本
+    // 都用 60 宽的紧凑竖条，别让侧栏吃掉正文宽度。
+    final extended = width >= 1500;
     final railBlue = Theme.of(context).brightness == Brightness.dark
         ? const Color(0xFF4D8DFF)
         : const Color(0xFF2F6BFF);
@@ -162,33 +164,33 @@ class _RootShellState extends State<RootShell> {
       Scaffold(
         body: Row(
           children: [
-            // 侧边栏瘦身：收起的竖条 64（默认 72），展开状态 148（默认 180 太宽）
+            // 侧边栏瘦身：竖条 60（原来是 72），展开状态 140（原来 180 太占地方）。
+            // icon 20 + 11 号字，60 宽刚好容得下「收藏/设置」四个字不换行。
             SizedBox(
-              width: extended ? 180 : 72,
+              width: extended ? 140 : 60,
               child: NavigationRail(
                 selectedIndex: _index,
                 extended: extended,
                 labelType: extended
                     ? NavigationRailLabelType.none
                     : NavigationRailLabelType.all,
-                // 宽度用 Material 默认值：之前收到 64 太窄，图标/文字的点击热区挤在一起，
-                // 点边缘常常只出动画不切换。72 / 180 是踩过坑后的稳妥尺寸。
-                minWidth: 72,
-                minExtendedWidth: 180,
+                minWidth: 60,
+                minExtendedWidth: 140,
                 // 和手机端一致：不要选中胶囊，只靠图标/文字变色
                 indicatorColor: Colors.transparent,
-                selectedIconTheme: IconThemeData(size: 22, color: railBlue),
+                selectedIconTheme: IconThemeData(size: 20, color: railBlue),
                 unselectedIconTheme: IconThemeData(
-                    size: 22, color: context.palette.textSecondary),
+                    size: 20, color: context.palette.textSecondary),
                 selectedLabelTextStyle: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                   color: railBlue,
                 ),
                 unselectedLabelTextStyle: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   color: context.palette.textSecondary,
                 ),
+                groupAlignment: -0.85,
                 onDestinationSelected: (value) => setState(() {
                   _index = value;
                   _visited.add(value);
@@ -196,8 +198,8 @@ class _RootShellState extends State<RootShell> {
                 destinations: [
                   for (final dest in _dests)
                     NavigationRailDestination(
-                      icon: Icon(dest.icon, size: 22),
-                      selectedIcon: Icon(dest.selectedIcon, size: 22),
+                      icon: Icon(dest.icon, size: 20),
+                      selectedIcon: Icon(dest.selectedIcon, size: 20),
                       label: Text(dest.label),
                     ),
                 ],

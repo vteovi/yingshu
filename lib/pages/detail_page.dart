@@ -13,6 +13,7 @@ import '../models/vod.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
 import 'player_page.dart';
+import 'player_page_desktop.dart';
 import '../theme/app_palette.dart';
 
 class DetailPage extends StatefulWidget {
@@ -60,7 +61,9 @@ class _DetailPageState extends State<DetailPage> {
       int groupIndex = -1;
       int episodeIndex = -1;
       for (var i = 0; i < groups.length && groupIndex < 0; i++) {
-        final index = groups[i].episodes.indexWhere((e) => e.url == widget.autoPlayEpisodeUrl);
+        final index = groups[i]
+            .episodes
+            .indexWhere((e) => e.url == widget.autoPlayEpisodeUrl);
         if (index >= 0) {
           groupIndex = i;
           episodeIndex = index;
@@ -91,17 +94,30 @@ class _DetailPageState extends State<DetailPage> {
   }) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PlayerPage(
-          sourceId: widget.source.id,
-          sourceName: widget.source.name,
-          vodId: vod.vodId,
-          vodName: vod.name,
-          vodPic: vod.pic,
-          groupName: group.from,
-          episodes: group.episodes,
-          initialIndex: index,
-          initialPosition: startPosition,
-        ),
+        // 桌面端 video_player 没有原生实现，走 media_kit 那个页面
+        builder: (_) => useDesktopPlayer
+            ? DesktopPlayerPage(
+                sourceId: widget.source.id,
+                sourceName: widget.source.name,
+                vodId: vod.vodId,
+                vodName: vod.name,
+                vodPic: vod.pic,
+                groupName: group.from,
+                episodes: group.episodes,
+                initialIndex: index,
+                initialPosition: startPosition,
+              )
+            : PlayerPage(
+                sourceId: widget.source.id,
+                sourceName: widget.source.name,
+                vodId: vod.vodId,
+                vodName: vod.name,
+                vodPic: vod.pic,
+                groupName: group.from,
+                episodes: group.episodes,
+                initialIndex: index,
+                initialPosition: startPosition,
+              ),
       ),
     );
   }
@@ -149,14 +165,18 @@ class _DetailPageState extends State<DetailPage> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
-            appBar: AppBar(title: Text(widget.initialName.isEmpty ? '详情' : widget.initialName)),
+            appBar: AppBar(
+                title: Text(
+                    widget.initialName.isEmpty ? '详情' : widget.initialName)),
             body: const LoadingView(text: '正在获取详情…'),
           );
         }
         if (snapshot.hasError) {
           final error = snapshot.error;
           return Scaffold(
-            appBar: AppBar(title: Text(widget.initialName.isEmpty ? '详情' : widget.initialName)),
+            appBar: AppBar(
+                title: Text(
+                    widget.initialName.isEmpty ? '详情' : widget.initialName)),
             body: ErrorView(
               message: error is CmsException ? error.message : '详情加载失败：$error',
               onRetry: () => setState(() => _future = _load()),
@@ -166,7 +186,9 @@ class _DetailPageState extends State<DetailPage> {
         final vod = snapshot.data;
         if (vod == null) {
           return Scaffold(
-            appBar: AppBar(title: Text(widget.initialName.isEmpty ? '详情' : widget.initialName)),
+            appBar: AppBar(
+                title: Text(
+                    widget.initialName.isEmpty ? '详情' : widget.initialName)),
             body: EmptyView(
               icon: Icons.movie_filter_outlined,
               title: '没有找到这部片子的详情',
@@ -184,7 +206,8 @@ class _DetailPageState extends State<DetailPage> {
   Widget _buildDetail(BuildContext context, VodItem vod) {
     final app = context.watch<AppState>();
     final groups = parsePlayGroups(vod.playFrom, vod.playUrl);
-    final groupIndex = groups.isEmpty ? 0 : _groupIndex.clamp(0, groups.length - 1).toInt();
+    final groupIndex =
+        groups.isEmpty ? 0 : _groupIndex.clamp(0, groups.length - 1).toInt();
     final isFavorite = app.isFavorite(widget.source.id, vod.vodId);
     final history = app.historyFor(widget.source.id, vod.vodId);
 
@@ -247,7 +270,8 @@ class _DetailPageState extends State<DetailPage> {
               ),
               fit: BoxFit.cover,
               gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => ColoredBox(color: context.palette.surfaceHigh),
+              errorBuilder: (_, __, ___) =>
+                  ColoredBox(color: context.palette.surfaceHigh),
             )
           else
             ColoredBox(color: context.palette.surfaceHigh),
@@ -276,7 +300,8 @@ class _DetailPageState extends State<DetailPage> {
                 if (vod.score.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF5C518),
                       borderRadius: BorderRadius.circular(6),
@@ -307,7 +332,8 @@ class _DetailPageState extends State<DetailPage> {
                     vod.metaLine,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: context.palette.textSecondary),
+                    style: TextStyle(
+                        fontSize: 13, color: context.palette.textSecondary),
                   ),
                 ],
               ],
@@ -340,7 +366,10 @@ class _DetailPageState extends State<DetailPage> {
                   if (vod.director.isNotEmpty)
                     _InfoRow(label: '导演', value: vod.director),
                   if (vod.actor.isNotEmpty)
-                    _InfoRow(label: '主演', value: vod.actor, spaced: vod.director.isNotEmpty),
+                    _InfoRow(
+                        label: '主演',
+                        value: vod.actor,
+                        spaced: vod.director.isNotEmpty),
                   if (vod.lang.isNotEmpty || vod.updatedAt.isNotEmpty)
                     _InfoRow(
                       label: '信息',
@@ -366,22 +395,31 @@ class _DetailPageState extends State<DetailPage> {
               ),
               const Spacer(),
               if (vod.score.isNotEmpty)
-                Text('评分 ${vod.score}', style: TextStyle(fontSize: 12, color: context.palette.textFaint)),
+                Text('评分 ${vod.score}',
+                    style: TextStyle(
+                        fontSize: 12, color: context.palette.textFaint)),
             ],
           ),
           const SizedBox(height: 8),
           Text(
             vod.cleanContent.isEmpty ? '暂无简介' : vod.cleanContent,
             maxLines: _descriptionExpanded ? null : 4,
-            overflow: _descriptionExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 13, height: 1.7, color: context.palette.textSecondary),
+            overflow: _descriptionExpanded
+                ? TextOverflow.visible
+                : TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 13,
+                height: 1.7,
+                color: context.palette.textSecondary),
           ),
           if (hasLongContent)
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton(
-                onPressed: () => setState(() => _descriptionExpanded = !_descriptionExpanded),
-                style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
+                onPressed: () => setState(
+                    () => _descriptionExpanded = !_descriptionExpanded),
+                style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
                 child: Text(_descriptionExpanded ? '收起' : '展开全部'),
               ),
             ),
@@ -413,7 +451,8 @@ class _DetailPageState extends State<DetailPage> {
               const SizedBox(width: 8),
               Text(
                 '共 ${group.episodes.length} 集',
-                style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+                style:
+                    TextStyle(fontSize: 12, color: context.palette.textFaint),
               ),
             ],
           ),
@@ -443,7 +482,8 @@ class _DetailPageState extends State<DetailPage> {
               for (var i = 0; i < group.episodes.length; i++)
                 _EpisodeButton(
                   label: group.episodes[i].name,
-                  highlight: historyEpisodeUrl != null && group.episodes[i].url == historyEpisodeUrl,
+                  highlight: historyEpisodeUrl != null &&
+                      group.episodes[i].url == historyEpisodeUrl,
                   onTap: () => _openPlayer(vod, group, i),
                 ),
             ],
@@ -476,7 +516,8 @@ class _DetailPageState extends State<DetailPage> {
           label = '继续播放 · ${group.episodes[index].name}';
         }
       }
-      label = resumeIndex == null ? '立即播放 · ${group.episodes.first.name}' : label;
+      label =
+          resumeIndex == null ? '立即播放 · ${group.episodes.first.name}' : label;
     }
 
     return SafeArea(
@@ -496,10 +537,12 @@ class _DetailPageState extends State<DetailPage> {
                           vod,
                           groups[groupIndex],
                           resumeIndex ?? 0,
-                          startPosition: resumeIndex != null ? history?.position : null,
+                          startPosition:
+                              resumeIndex != null ? history?.position : null,
                         ),
                 icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                label:
+                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
             ),
             const SizedBox(width: 8),
@@ -524,11 +567,13 @@ class _DetailPageState extends State<DetailPage> {
             IconButton.filledTonal(
               tooltip: isFavorite ? '取消收藏' : '收藏',
               onPressed: () async {
-                final added = await app.toggleFavorite(source: widget.source, vod: vod);
+                final added =
+                    await app.toggleFavorite(source: widget.source, vod: vod);
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context)
                   ..hideCurrentSnackBar()
-                  ..showSnackBar(SnackBar(content: Text(added ? '已加入收藏' : '已取消收藏')));
+                  ..showSnackBar(
+                      SnackBar(content: Text(added ? '已加入收藏' : '已取消收藏')));
               },
               icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border),
             ),
@@ -540,7 +585,8 @@ class _DetailPageState extends State<DetailPage> {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value, this.spaced = false});
+  const _InfoRow(
+      {required this.label, required this.value, this.spaced = false});
 
   final String label;
   final String value;
@@ -555,14 +601,19 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 36,
-            child: Text(label, style: TextStyle(fontSize: 12, color: context.palette.textFaint)),
+            child: Text(label,
+                style:
+                    TextStyle(fontSize: 12, color: context.palette.textFaint)),
           ),
           Expanded(
             child: Text(
               value,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
+              style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: context.palette.textSecondary),
             ),
           ),
         ],
@@ -572,7 +623,8 @@ class _InfoRow extends StatelessWidget {
 }
 
 class _EpisodeButton extends StatelessWidget {
-  const _EpisodeButton({required this.label, required this.onTap, this.highlight = false});
+  const _EpisodeButton(
+      {required this.label, required this.onTap, this.highlight = false});
 
   final String label;
   final VoidCallback onTap;
@@ -584,9 +636,12 @@ class _EpisodeButton extends StatelessWidget {
     // 不再写死 78×38：短标签保持原来的小方块观感，长标签（“第12集 大结局”这类）
     // 会自动变宽、最多折两行，不会再被截成省略号。
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 78, maxWidth: 168, minHeight: 38),
+      constraints:
+          const BoxConstraints(minWidth: 78, maxWidth: 168, minHeight: 38),
       child: Material(
-        color: highlight ? theme.colorScheme.primary.withOpacity(0.22) : context.palette.surfaceHigh,
+        color: highlight
+            ? theme.colorScheme.primary.withOpacity(0.22)
+            : context.palette.surfaceHigh,
         borderRadius: BorderRadius.circular(9),
         child: InkWell(
           borderRadius: BorderRadius.circular(9),
@@ -602,7 +657,9 @@ class _EpisodeButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   height: 1.3,
-                  color: highlight ? context.palette.textPrimary : context.palette.textSecondary,
+                  color: highlight
+                      ? context.palette.textPrimary
+                      : context.palette.textSecondary,
                   fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
