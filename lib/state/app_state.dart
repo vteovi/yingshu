@@ -173,8 +173,8 @@ class AppState extends ChangeNotifier {
   /// 长按加速倍率：播放页长按画面时临时提到这个速度，默认 2 倍，最大 8 倍。
   double _boostRate = kDefaultBoostRate;
 
-  /// 首页右上角「海报样式 / 海报大小」按钮是否显示。
-  bool _showViewSwitch = true;
+  /// 首页右上角「海报样式 / 海报大小」按钮是否显示。默认关闭。
+  bool _showViewSwitch = false;
 
   /// 播放页是否显示实时下载（缓冲）速度。
   bool _showSpeedMeter = false;
@@ -300,8 +300,12 @@ class AppState extends ChangeNotifier {
     _posterSize = PosterSize.parse(settings['posterSize']);
     _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);
     _boostRate = _parseBoostRate(settings['boostRate']);
-    _showViewSwitch =
-        settings['showViewSwitch'] is bool ? settings['showViewSwitch'] as bool : true;
+    // 「显示视图切换按钮」上一版默认是开的，老存档里那个 true 其实只是默认值，
+    // 不是用户的选择。用一次性标记把它归位到关闭，之后用户自己开的才算数。
+    final needsViewSwitchReset = settings['viewSwitchDefaultFixed'] != true;
+    _showViewSwitch = needsViewSwitchReset
+        ? false
+        : (settings['showViewSwitch'] is bool ? settings['showViewSwitch'] as bool : false);
     _showSpeedMeter =
         settings['showSpeedMeter'] is bool ? settings['showSpeedMeter'] as bool : false;
     // 新设置只有 posterMode 一个键；老版本存档里是
@@ -332,6 +336,9 @@ class AppState extends ChangeNotifier {
       if (id.isEmpty) continue;
       _health[id] = SourceHealth.fromJson(map);
     }
+
+    // 把上面那次归位落到存档里，否则下次启动又被旧值拉回「显示」
+    if (needsViewSwitchReset) await _persistSettings();
 
     notifyListeners();
   }
@@ -1238,6 +1245,8 @@ class AppState extends ChangeNotifier {
         'boostRate': _boostRate,
         'showViewSwitch': _showViewSwitch,
         'showSpeedMeter': _showSpeedMeter,
+        // 一次性迁移标记：见 init() 里对 showViewSwitch 默认值的处理
+        'viewSwitchDefaultFixed': true,
       };
 
   Future<void> _persistSettings() {
