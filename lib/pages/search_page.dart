@@ -97,6 +97,9 @@ class _SearchPageState extends State<SearchPage> {
   /// 已经翻到底（下一页没有新结果）的站点。
   final Set<String> _exhausted = {};
 
+  /// 首轮已经返回过的站点：翻页只翻这些，避免和首轮请求撞在一起。
+  final Set<String> _doneSources = {};
+
   bool _loadingMore = false;
 
   /// 这一轮参与检索的站点和关键词，加载更多时沿用同一批。
@@ -234,6 +237,7 @@ class _SearchPageState extends State<SearchPage> {
       _seenKeys.clear();
       _sourcePages.clear();
       _exhausted.clear();
+      _doneSources.clear();
       for (final source in sources) {
         _sourcePages[source.id] = 1;
       }
@@ -251,6 +255,7 @@ class _SearchPageState extends State<SearchPage> {
         if (!mounted || runId != _runId) return;
         setState(() {
           _done++;
+          _doneSources.add(source.id);
           final fresh = <SearchHit>[];
           for (final hit in hits) {
             if (_seenKeys.add(_hitKey(hit))) fresh.add(hit);
@@ -298,13 +303,15 @@ class _SearchPageState extends State<SearchPage> {
   /// [filterId] 为 null（「全部」标签）时翻所有还没到底的站点；
   /// 停在某个站点标签时只翻这一个站点，别的站点页码原封不动。
   Future<void> _loadMore(String? filterId) async {
-    if (_loading || _loadingMore) return;
+    if (_loadingMore) return;
     final keyword = _lastKeyword?.trim() ?? '';
     if (keyword.isEmpty || _searchSources.isEmpty) return;
 
     final targets = _searchSources
         .where((s) => !_exhausted.contains(s.id))
         .where((s) => filterId == null || s.id == filterId)
+        // 首轮还在跑的时候也允许翻：只翻已经出过结果的站点
+        .where((s) => _doneSources.contains(s.id))
         .toList(growable: false);
     if (targets.isEmpty) return;
 
@@ -345,10 +352,20 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   /// 结果区底部：检索进度 / 加载更多 / 到底提示。
+  ///
+  /// 首轮还在检索时也会出「加载更多」：只要当前标签对应的站点已经出过结果，
+  /// 就不必干等其它站点全部返回。
   Widget _buildResultsFooter(String? filterId, int visibleCount) {
     if (_scope == SearchScope.local || _error != null || _hits.isEmpty) {
       return const SizedBox(height: 28);
     }
+
+    final candidates = _searchSources.where(
+      (s) =>
+          !_exhausted.contains(s.id) && (filterId == null || s.id == filterId),
+    );
+    final ready =
+        candidates.where((s) => _doneSources.contains(s.id)).isNotEmpty;
     if (_loadingMore) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
@@ -369,11 +386,8 @@ class _SearchPageState extends State<SearchPage> {
         ),
       );
     }
-    final hasMore = _searchSources.any(
-      (s) =>
-          !_exhausted.contains(s.id) && (filterId == null || s.id == filterId),
-    );
-    if (!hasMore) {
+
+    if (candidates.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Center(
@@ -384,16 +398,56 @@ class _SearchPageState extends State<SearchPage> {
         ),
       );
     }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: Center(
-        child: OutlinedButton.icon(
-          onPressed: () => _loadMore(filterId),
-          icon: const Icon(Icons.expand_more_rounded, size: 18),
-          label: Text(filterId == null ? '加载更多' : '加载更多（本站点）'),
+
+    if (!ready) {
+      // 当前标签的站点还没返回，没东西可翻
+      return _buildProgress();
+    }
+
+    if (context.select<AppState, bool>((s) => s.autoLoadMore)) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_loading) _buildProgress(),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: Text(
+                '继续下滑自动加载下一页',
+                style:
+                    TextStyle(fontSize: 12, color: context.palette.textFaint),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_loading) _buildProgress(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Center(
+            child: OutlinedButton.icon(
+              onPressed: () => _loadMore(filterId),
+              icon: const Icon(Icons.expand_more_rounded, size: 18),
+              label: Text(filterId == null ? '加载更多' : '加载更多（本站点）'),
+            ),
+          ),
         ),
-      ),
+      ],
     );
+  }
+
+  /// 自动加载模式下，滑到接近底部就续下一页（同一时间只跑一轮）。
+  void _maybeAutoLoad() {
+    if (!mounted) return;
+    if (_loadingMore) return;
+    if (!context.read<AppState>().autoLoadMore) return;
+    if (_scope == SearchScope.local || _error != null) return;
+    _loadMore(_filterSourceId);
   }
 
   /// 只在本地记录里找：片名 / 备注包含关键词（不区分大小写），
@@ -798,14 +852,25 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     // 结果区做成横向分页：左右滑动即可在「全部 / 各来源」之间切换，顶部标签同步高亮
-    return PageView.builder(
-      controller: _pager,
-      itemCount: ids.length,
-      onPageChanged: (i) {
-        final id = ids[i];
-        if (id != _filterSourceId) setState(() => _filterSourceId = id);
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        final scrolling = notification is ScrollUpdateNotification ||
+            notification is ScrollEndNotification;
+        // 离底部不到 240 就开始备下一页，滑到底时基本已经加载好了
+        if (scrolling && notification.metrics.extentAfter < 240) {
+          _maybeAutoLoad();
+        }
+        return false;
       },
-      itemBuilder: (context, i) => _buildResults(ids[i]),
+      child: PageView.builder(
+        controller: _pager,
+        itemCount: ids.length,
+        onPageChanged: (i) {
+          final id = ids[i];
+          if (id != _filterSourceId) setState(() => _filterSourceId = id);
+        },
+        itemBuilder: (context, i) => _buildResults(ids[i]),
+      ),
     );
   }
 
@@ -836,9 +901,7 @@ class _SearchPageState extends State<SearchPage> {
     String picUrl(int i) =>
         normalizeImageUrl(visible[i].vod.pic, api: visible[i].source.api);
 
-    final Widget footer = _loading
-        ? _buildProgress()
-        : _buildResultsFooter(filterId, visible.length);
+    final Widget footer = _buildResultsFooter(filterId, visible.length);
     final showFooter = visible.isNotEmpty;
     final endPadding = SliverToBoxAdapter(
       child: showFooter ? footer : const SizedBox(height: 28),

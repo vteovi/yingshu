@@ -45,8 +45,7 @@ class BackupRestoreResult {
   final int searchKeywords;
   final int settings;
 
-  int get total =>
-      sources + favorites + history + searchKeywords + settings;
+  int get total => sources + favorites + history + searchKeywords + settings;
 }
 
 /// 海报大小：决定网格里一行放几张。
@@ -179,6 +178,10 @@ class AppState extends ChangeNotifier {
   /// 播放页是否显示实时下载（缓冲）速度。
   bool _showSpeedMeter = false;
 
+  /// 搜索结果是否自动加载下一页（滚到底自动加载）。
+  /// 默认关闭 = 底部显示「加载更多」，由用户点；打开 = 滑到底自动续页。
+  bool _autoLoadMore = false;
+
   CmsApi get api => _api;
   String get userAgent => _userAgent;
   bool get autoPlayNext => _autoPlayNext;
@@ -191,13 +194,15 @@ class AppState extends ChangeNotifier {
   double get boostRate => _boostRate;
   bool get showViewSwitch => _showViewSwitch;
   bool get showSpeedMeter => _showSpeedMeter;
+  bool get autoLoadMore => _autoLoadMore;
 
   /// 兼容旧调用：横向卡片 = 海报样式选了「横向」
   bool get landscapeCard => _posterMode == PosterMode.landscape;
 
   /// 兼容旧调用：排布方式由海报样式推导，「原始比例」才走瀑布流
-  PosterLayout get posterLayout =>
-      _posterMode == PosterMode.actual ? PosterLayout.actual : PosterLayout.grid;
+  PosterLayout get posterLayout => _posterMode == PosterMode.actual
+      ? PosterLayout.actual
+      : PosterLayout.grid;
 
   /// 真正生效的横版卡片：只有竖向/横向两档是网格，原始比例走瀑布流
   bool get useLandscapeCard => _posterMode == PosterMode.landscape;
@@ -244,8 +249,10 @@ class AppState extends ChangeNotifier {
   SourceHealth healthOf(String sourceId) =>
       _health[sourceId] ?? const SourceHealth();
 
-  int get availableCount => _sources.where((s) => healthOf(s.id).isAvailable).length;
-  int get unavailableCount => _sources.where((s) => healthOf(s.id).isUnavailable).length;
+  int get availableCount =>
+      _sources.where((s) => healthOf(s.id).isAvailable).length;
+  int get unavailableCount =>
+      _sources.where((s) => healthOf(s.id).isUnavailable).length;
 
   CmsSource? get currentSource {
     final byId = _sources.where((s) => s.id == _currentSourceId && s.enabled);
@@ -291,11 +298,16 @@ class AppState extends ChangeNotifier {
     final settings = _store.readMap(LocalStore.keySettings);
     _userAgent = (settings['userAgent'] ?? '').toString().trim();
     if (_userAgent.isEmpty) _userAgent = kDefaultUserAgent;
-    _autoPlayNext = settings['autoPlayNext'] is bool ? settings['autoPlayNext'] as bool : true;
-    _rememberProgress =
-        settings['rememberProgress'] is bool ? settings['rememberProgress'] as bool : true;
+    _autoPlayNext = settings['autoPlayNext'] is bool
+        ? settings['autoPlayNext'] as bool
+        : true;
+    _rememberProgress = settings['rememberProgress'] is bool
+        ? settings['rememberProgress'] as bool
+        : true;
     // 跳过片头广告默认关闭：识错广告段会误跳正片，要用户自己开
-    _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : false;
+    _skipIntroAd = settings['skipIntroAd'] is bool
+        ? settings['skipIntroAd'] as bool
+        : false;
     _themeMode = _parseThemeMode(settings['themeMode']);
     _posterSize = PosterSize.parse(settings['posterSize']);
     _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);
@@ -305,16 +317,24 @@ class AppState extends ChangeNotifier {
     final needsViewSwitchReset = settings['viewSwitchDefaultFixed'] != true;
     _showViewSwitch = needsViewSwitchReset
         ? false
-        : (settings['showViewSwitch'] is bool ? settings['showViewSwitch'] as bool : false);
-    _showSpeedMeter =
-        settings['showSpeedMeter'] is bool ? settings['showSpeedMeter'] as bool : false;
+        : (settings['showViewSwitch'] is bool
+            ? settings['showViewSwitch'] as bool
+            : false);
+    _showSpeedMeter = settings['showSpeedMeter'] is bool
+        ? settings['showSpeedMeter'] as bool
+        : false;
+    _autoLoadMore = settings['autoLoadMore'] is bool
+        ? settings['autoLoadMore'] as bool
+        : false;
     // 新设置只有 posterMode 一个键；老版本存档里是
     // posterLayout(规整/原始比例) + landscapeCard(开关)，这里做一次迁移
     if (settings.containsKey('posterMode')) {
       _posterMode = PosterMode.parse(settings['posterMode']);
-    } else if (PosterLayout.parse(settings['posterLayout']) == PosterLayout.actual) {
+    } else if (PosterLayout.parse(settings['posterLayout']) ==
+        PosterLayout.actual) {
       _posterMode = PosterMode.actual;
-    } else if (settings['landscapeCard'] is bool && settings['landscapeCard'] as bool) {
+    } else if (settings['landscapeCard'] is bool &&
+        settings['landscapeCard'] as bool) {
       _posterMode = PosterMode.landscape;
     } else {
       _posterMode = PosterMode.portrait;
@@ -345,7 +365,8 @@ class AppState extends ChangeNotifier {
 
   /// 长按加速倍率：夹在 1.25~8 之间，非法值回落到默认 2 倍。
   static double _parseBoostRate(Object? raw) {
-    final value = raw is num ? raw.toDouble() : double.tryParse(raw?.toString() ?? '');
+    final value =
+        raw is num ? raw.toDouble() : double.tryParse(raw?.toString() ?? '');
     if (value == null || value.isNaN) return kDefaultBoostRate;
     return value.clamp(kMinBoostRate, kMaxBoostRate).toDouble();
   }
@@ -428,7 +449,9 @@ class AppState extends ChangeNotifier {
       if (_sources.any((s) => s.api == api)) continue;
       _sources.add(CmsSource(
         id: CmsSource.newSourceId() + '_$added',
-        name: source.name.isEmpty ? (Uri.tryParse(api)?.host ?? '未命名源') : source.name,
+        name: source.name.isEmpty
+            ? (Uri.tryParse(api)?.host ?? '未命名源')
+            : source.name,
         api: api,
         enabled: source.enabled,
         note: source.note,
@@ -464,7 +487,8 @@ class AppState extends ChangeNotifier {
     return _store.writeList(
       LocalStore.keySourceHealth,
       _health.entries
-          .map((entry) => <String, dynamic>{'id': entry.key, ...entry.value.toJson()})
+          .map((entry) =>
+              <String, dynamic>{'id': entry.key, ...entry.value.toJson()})
           .toList(growable: false),
     );
   }
@@ -477,7 +501,9 @@ class AppState extends ChangeNotifier {
       stopwatch.stop();
       final usable = index.categories.isNotEmpty || index.videos.isNotEmpty;
       return SourceHealth(
-        status: usable ? SourceHealthStatus.available : SourceHealthStatus.unavailable,
+        status: usable
+            ? SourceHealthStatus.available
+            : SourceHealthStatus.unavailable,
         message: usable
             ? '接口正常，${index.categories.length} 个分类 / ${index.videos.length} 条数据'
             : '接口有响应但没有返回分类或影片数据',
@@ -550,7 +576,8 @@ class AppState extends ChangeNotifier {
     }
 
     final workerCount = targets.length < 4 ? targets.length : 4;
-    await Future.wait(List<Future<void>>.generate(workerCount, (_) => worker()));
+    await Future.wait(
+        List<Future<void>>.generate(workerCount, (_) => worker()));
     _checkingIds.clear();
 
     // 可用的在前并打开，不可用的在后并关闭；同组内保持原有顺序
@@ -570,9 +597,11 @@ class AppState extends ChangeNotifier {
       ..removeWhere((id, _) => !targets.any((s) => s.id == id))
       ..addAll(results);
 
-    if (_currentSourceId != null && badList.any((s) => s.id == _currentSourceId)) {
+    if (_currentSourceId != null &&
+        badList.any((s) => s.id == _currentSourceId)) {
       _currentSourceId = okList.isEmpty ? null : okList.first.id;
-      await _store.writeString(LocalStore.keyCurrentSource, _currentSourceId ?? '');
+      await _store.writeString(
+          LocalStore.keyCurrentSource, _currentSourceId ?? '');
     }
 
     _checking = false;
@@ -592,7 +621,8 @@ class AppState extends ChangeNotifier {
     return _favorites.any((f) => f.sourceId == sourceId && f.vodId == vodId);
   }
 
-  Future<bool> toggleFavorite({required CmsSource source, required VodItem vod}) async {
+  Future<bool> toggleFavorite(
+      {required CmsSource source, required VodItem vod}) async {
     final existing = _favorites.indexWhere(
       (f) => f.sourceId == source.id && f.vodId == vod.vodId,
     );
@@ -620,7 +650,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> removeFavorite(FavoriteItem item) async {
-    _favorites.removeWhere((f) => f.sourceId == item.sourceId && f.vodId == item.vodId);
+    _favorites.removeWhere(
+        (f) => f.sourceId == item.sourceId && f.vodId == item.vodId);
     await _persistFavorites();
     notifyListeners();
   }
@@ -710,8 +741,10 @@ class AppState extends ChangeNotifier {
   /// 打包本机数据，给另一台设备取用；[scopes] 为 null 时全给。
   LanSyncData exportSyncData({Set<String>? scopes}) {
     final data = LanSyncData(
-      sources: _sources.map((source) => source.toJson()).toList(growable: false),
-      favorites: _favorites.map((item) => item.toJson()).toList(growable: false),
+      sources:
+          _sources.map((source) => source.toJson()).toList(growable: false),
+      favorites:
+          _favorites.map((item) => item.toJson()).toList(growable: false),
       history: _history.map((item) => item.toJson()).toList(growable: false),
       settings: {
         'themeMode': _themeMode.name,
@@ -732,7 +765,9 @@ class AppState extends ChangeNotifier {
   /// 源的身份标识：优先用接口地址，地址为空时退回名字。
   static String _syncSourceKey(String api, String name) {
     final normalized = api.trim().toLowerCase().replaceAll(RegExp(r'/+$'), '');
-    return normalized.isEmpty ? 'name:${name.trim().toLowerCase()}' : normalized;
+    return normalized.isEmpty
+        ? 'name:${name.trim().toLowerCase()}'
+        : normalized;
   }
 
   CmsSource? _findSourceBySyncKey(String key) {
@@ -770,7 +805,9 @@ class AppState extends ChangeNotifier {
           idMap[incoming.id] = existing.id;
         } else {
           final existingIds = _sources.map((source) => source.id).toSet();
-          final id = existingIds.contains(incoming.id) ? CmsSource.newSourceId() : incoming.id;
+          final id = existingIds.contains(incoming.id)
+              ? CmsSource.newSourceId()
+              : incoming.id;
           _sources.add(CmsSource(
             id: id,
             name: incoming.name,
@@ -795,7 +832,8 @@ class AppState extends ChangeNotifier {
     var addedFavorites = 0;
     final favoriteTotal = data.favorites.length;
     var favoriteDone = 0;
-    if (favoriteTotal > 0) onProgress?.call(SyncScope.favorites, 0, favoriteTotal);
+    if (favoriteTotal > 0)
+      onProgress?.call(SyncScope.favorites, 0, favoriteTotal);
     for (final raw in data.favorites) {
       if (isCancelled?.call() ?? false) break;
       final incoming = FavoriteItem.fromJson(raw);
@@ -866,8 +904,11 @@ class AppState extends ChangeNotifier {
     if (incomingSettings.isNotEmpty) {
       onProgress?.call(SyncScope.settings, 0, 1);
       final theme = incomingSettings['themeMode']?.toString();
-      if (_themeMode == ThemeMode.system && theme != null && theme != 'system') {
-        final parsed = {'light': ThemeMode.light, 'dark': ThemeMode.dark}[theme];
+      if (_themeMode == ThemeMode.system &&
+          theme != null &&
+          theme != 'system') {
+        final parsed =
+            {'light': ThemeMode.light, 'dark': ThemeMode.dark}[theme];
         if (parsed != null) {
           _themeMode = parsed;
           adoptedSettings++;
@@ -883,7 +924,8 @@ class AppState extends ChangeNotifier {
         _posterMode = mode;
         adoptedSettings++;
       }
-      final orientation = PlayerOrientation.parse(incomingSettings['playerOrientation']);
+      final orientation =
+          PlayerOrientation.parse(incomingSettings['playerOrientation']);
       if (_playerOrientation == PlayerOrientation.video &&
           orientation != PlayerOrientation.video) {
         _playerOrientation = orientation;
@@ -920,6 +962,13 @@ class AppState extends ChangeNotifier {
         _showSpeedMeter = true;
         adoptedSettings++;
       }
+      // 开关类（默认关闭）同样只补「对方打开了、本机还关着」的情况
+      if (incomingSettings['autoLoadMore'] is bool &&
+          !_autoLoadMore &&
+          incomingSettings['autoLoadMore'] as bool == true) {
+        _autoLoadMore = true;
+        adoptedSettings++;
+      }
       onProgress?.call(SyncScope.settings, 1, 1);
     }
 
@@ -953,7 +1002,8 @@ class AppState extends ChangeNotifier {
     return fallback;
   }
 
-  HistoryItem _rekeyHistory(HistoryItem item, String sourceId, String sourceName) {
+  HistoryItem _rekeyHistory(
+      HistoryItem item, String sourceId, String sourceName) {
     return HistoryItem(
       sourceId: sourceId,
       sourceName: sourceName,
@@ -979,8 +1029,10 @@ class AppState extends ChangeNotifier {
       'kind': 'backup',
       'version': kAppVersion,
       'exportedAt': DateTime.now().toIso8601String(),
-      'sources': _sources.map((source) => source.toJson()).toList(growable: false),
-      'favorites': _favorites.map((item) => item.toJson()).toList(growable: false),
+      'sources':
+          _sources.map((source) => source.toJson()).toList(growable: false),
+      'favorites':
+          _favorites.map((item) => item.toJson()).toList(growable: false),
       'history': _history.map((item) => item.toJson()).toList(growable: false),
       'searchHistory': _searchHistory,
       'settings': _settingsMap(),
@@ -1073,7 +1125,8 @@ class AppState extends ChangeNotifier {
         appliedSettings++;
       }
       if (settings.containsKey('playerOrientation')) {
-        _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);
+        _playerOrientation =
+            PlayerOrientation.parse(settings['playerOrientation']);
         appliedSettings++;
       }
       if (settings.containsKey('boostRate')) {
@@ -1086,6 +1139,10 @@ class AppState extends ChangeNotifier {
       }
       if (settings['showSpeedMeter'] is bool) {
         _showSpeedMeter = settings['showSpeedMeter'] as bool;
+        appliedSettings++;
+      }
+      if (settings['autoLoadMore'] is bool) {
+        _autoLoadMore = settings['autoLoadMore'] as bool;
         appliedSettings++;
       }
     }
@@ -1197,11 +1254,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setAutoLoadMore(bool value) async {
+    if (_autoLoadMore == value) return;
+    _autoLoadMore = value;
+    await _persistSettings();
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------- 搜索记录
   Future<void> addSearchHistory(String keyword) async {
     final value = keyword.trim();
     if (value.isEmpty) return;
-    _searchHistory.removeWhere((item) => item.toLowerCase() == value.toLowerCase());
+    _searchHistory
+        .removeWhere((item) => item.toLowerCase() == value.toLowerCase());
     _searchHistory.insert(0, value);
     if (_searchHistory.length > 20) {
       _searchHistory.removeRange(20, _searchHistory.length);
@@ -1228,7 +1293,9 @@ class AppState extends ChangeNotifier {
   Future<void> _persistSearchHistory() {
     return _store.writeList(
       LocalStore.keySearchHistory,
-      _searchHistory.map((keyword) => {'keyword': keyword}).toList(growable: false),
+      _searchHistory
+          .map((keyword) => {'keyword': keyword})
+          .toList(growable: false),
     );
   }
 
@@ -1245,6 +1312,7 @@ class AppState extends ChangeNotifier {
         'boostRate': _boostRate,
         'showViewSwitch': _showViewSwitch,
         'showSpeedMeter': _showSpeedMeter,
+        'autoLoadMore': _autoLoadMore,
         // 一次性迁移标记：见 init() 里对 showViewSwitch 默认值的处理
         'viewSwitchDefaultFixed': true,
       };
