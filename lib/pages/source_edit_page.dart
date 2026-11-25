@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/clip_url.dart';
 import '../core/constants.dart';
 import '../models/cms_source.dart';
 import '../state/app_state.dart';
@@ -51,7 +52,7 @@ class _SourceEditPageState extends State<SourceEditPage> {
     } catch (_) {
       return; // 桌面端剪贴板不可用时静默跳过
     }
-    final candidate = _normalizeClipUrl(raw);
+    final candidate = findUrlInText(raw);
     if (candidate == null || !mounted) return;
     setState(() {
       _apiController.text = candidate;
@@ -60,25 +61,6 @@ class _SourceEditPageState extends State<SourceEditPage> {
       );
       _clipFilled = true;
     });
-  }
-
-  /// 从剪贴板文本里挑出第一个像接口地址的片段；没有协议的补 https://。
-  String? _normalizeClipUrl(String? raw) {
-    final text = (raw ?? '').trim();
-    if (text.isEmpty) return null;
-    for (final token in text.split(RegExp(r'\s+'))) {
-      var value = token.trim();
-      if (value.length < 10) continue;
-      if (!value.startsWith('http://') && !value.startsWith('https://')) {
-        // 形如 host.com/api.php/provide/vod/ 的裸地址，前面补协议
-        if (value.contains('://') || !value.contains('.')) continue;
-        value = 'https://$value';
-      }
-      final uri = Uri.tryParse(value);
-      if (uri == null || uri.host.isEmpty || !uri.host.contains('.')) continue;
-      return value;
-    }
-    return null;
   }
 
   @override
@@ -109,7 +91,8 @@ class _SourceEditPageState extends State<SourceEditPage> {
       if (!mounted) return;
       setState(() {
         _testOk = true;
-        _testResult = '连接成功：${index.categories.length} 个分类，返回 ${index.videos.length} 条最新数据';
+        _testResult =
+            '连接成功：${index.categories.length} 个分类，返回 ${index.videos.length} 条最新数据';
       });
     } catch (error) {
       if (!mounted) return;
@@ -177,8 +160,12 @@ class _SourceEditPageState extends State<SourceEditPage> {
         title: const Text('删除订阅源'),
         content: Text('确定删除「${source.name}」吗？\n与它关联的收藏和观看记录也会一并清理。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('删除')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('删除')),
         ],
       ),
     );
@@ -206,7 +193,10 @@ class _SourceEditPageState extends State<SourceEditPage> {
           children: [
             Text(
               '苹果CMS v10 采集接口地址，一般形如：\nhttps://你的域名/api.php/provide/vod/',
-              style: TextStyle(fontSize: 12, height: 1.6, color: context.palette.textSecondary),
+              style: TextStyle(
+                  fontSize: 12,
+                  height: 1.6,
+                  color: context.palette.textSecondary),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -274,7 +264,8 @@ class _SourceEditPageState extends State<SourceEditPage> {
               title: const Text('启用此源'),
               subtitle: Text(
                 '停用后不参与首页与聚合搜索',
-                style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+                style:
+                    TextStyle(fontSize: 12, color: context.palette.textFaint),
               ),
               value: _enabled,
               onChanged: (value) => setState(() => _enabled = value),
@@ -313,7 +304,9 @@ class _SourceEditPageState extends State<SourceEditPage> {
                   color: context.palette.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: (_testOk ?? false) ? const Color(0xFF3FBF8F) : const Color(0xFFCF6679),
+                    color: (_testOk ?? false)
+                        ? const Color(0xFF3FBF8F)
+                        : const Color(0xFFCF6679),
                     width: 0.8,
                   ),
                 ),
@@ -321,15 +314,22 @@ class _SourceEditPageState extends State<SourceEditPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
-                      (_testOk ?? false) ? Icons.check_circle_outline : Icons.error_outline,
+                      (_testOk ?? false)
+                          ? Icons.check_circle_outline
+                          : Icons.error_outline,
                       size: 18,
-                      color: (_testOk ?? false) ? const Color(0xFF3FBF8F) : const Color(0xFFCF6679),
+                      color: (_testOk ?? false)
+                          ? const Color(0xFF3FBF8F)
+                          : const Color(0xFFCF6679),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _testResult!,
-                        style: TextStyle(fontSize: 12, height: 1.5, color: context.palette.textSecondary),
+                        style: TextStyle(
+                            fontSize: 12,
+                            height: 1.5,
+                            color: context.palette.textSecondary),
                       ),
                     ),
                   ],
@@ -344,7 +344,8 @@ class _SourceEditPageState extends State<SourceEditPage> {
                 onPressed: _delete,
                 icon: const Icon(Icons.delete_outline, size: 18),
                 label: const Text('删除这个订阅源'),
-                style: TextButton.styleFrom(foregroundColor: const Color(0xFFE86A6A)),
+                style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFE86A6A)),
               ),
             ],
           ],

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../core/clip_url.dart';
 import '../core/file_export.dart';
 import '../data/tvbox_config.dart';
 import '../models/cms_source.dart';
@@ -93,14 +94,16 @@ class SourcesPage extends StatelessWidget {
                   )
                 else if (app.availableCount + app.unavailableCount > 0)
                   _CheckBanner(
-                    text: '可用 ${app.availableCount} 个 · 不可用 ${app.unavailableCount} 个',
+                    text:
+                        '可用 ${app.availableCount} 个 · 不可用 ${app.unavailableCount} 个',
                     showDot: false,
                   ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                   child: Text(
                     '点卡片可编辑 · 长按可复制接口地址',
-                    style: TextStyle(fontSize: 11, color: context.palette.textFaint),
+                    style: TextStyle(
+                        fontSize: 11, color: context.palette.textFaint),
                   ),
                 ),
                 Expanded(
@@ -149,7 +152,8 @@ class SourcesPage extends StatelessWidget {
     );
   }
 
-  Future<void> _runSingleCheck(BuildContext context, AppState app, CmsSource source) async {
+  Future<void> _runSingleCheck(
+      BuildContext context, AppState app, CmsSource source) async {
     final health = await app.checkSource(source.id);
     if (!context.mounted) return;
     if (health == null) {
@@ -186,8 +190,24 @@ class SourcesPage extends StatelessWidget {
     );
   }
 
+  /// 读剪贴板；拿不到就返回 null（桌面端某些环境会抛异常）。
+  Future<String?> _readClipboard() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      return data?.text;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _importText(BuildContext context, AppState app) async {
-    final controller = TextEditingController();
+    // 剪贴板里的整段文本原样铺进去：可能是一行条线路、一坨影枢 JSON，
+    // 也可能是一整份 TVBox 配置，解析交给下面的 _importBundleText 去判断。
+    final seed = ((await _readClipboard()) ?? '').trim();
+    final controller = TextEditingController(text: seed);
+    if (seed.isNotEmpty) {
+      controller.selection = TextSelection.collapsed(offset: seed.length);
+    }
     final text = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -197,14 +217,17 @@ class SourcesPage extends StatelessWidget {
           child: TextField(
             controller: controller,
             maxLines: 8,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: '每行一条：站点名,https://xxx.com/api.php/provide/vod/\n'
                   '也可以直接粘贴影枢 JSON 或 TVBox 配置（含 sites / urls）',
+              helperText: seed.isEmpty ? null : '已填入剪贴板里的文本，可直接导入',
             ),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消')),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, controller.text),
             child: const Text('导入'),
@@ -219,7 +242,8 @@ class SourcesPage extends StatelessWidget {
   }
 
   /// 粘贴内容可能是 TVBox 配置：先落库 sites，再把 urls 里的子配置拉下来。
-  Future<void> _importBundleText(BuildContext context, AppState app, String text) async {
+  Future<void> _importBundleText(
+      BuildContext context, AppState app, String text) async {
     final bundle = parseSourceBundle(text);
     if (bundle.isEmpty) {
       if (!context.mounted) return;
@@ -237,9 +261,11 @@ class SourcesPage extends StatelessWidget {
       }
     }
     if (!context.mounted) return;
-    _snack(context, added == 0
-        ? '这些源都已存在，原有 ${app.sources.length} 个源保留'
-        : '导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
+    _snack(
+        context,
+        added == 0
+            ? '这些源都已存在，原有 ${app.sources.length} 个源保留'
+            : '导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
   }
 
   /// 本地 JSON / TXT 文件导入（TVBox 配置文件、影枢导出文件都可以）。
@@ -281,7 +307,12 @@ class SourcesPage extends StatelessWidget {
   }
 
   Future<void> _importUrl(BuildContext context, AppState app) async {
-    final controller = TextEditingController();
+    // 剪贴板里是链接就自动填进去，光标停在末尾，直接点「拉取」就行
+    final seed = findUrlInText(await _readClipboard()) ?? '';
+    final controller = TextEditingController(text: seed);
+    if (seed.isNotEmpty) {
+      controller.selection = TextSelection.collapsed(offset: seed.length);
+    }
     final url = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -290,15 +321,21 @@ class SourcesPage extends StatelessWidget {
           width: 420,
           child: TextField(
             controller: controller,
-            decoration: const InputDecoration(
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: InputDecoration(
               hintText: 'https://xxx.com/sources.json',
+              helperText: seed.isEmpty ? null : '已填入剪贴板里的链接，可直接拉取',
             ),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消')),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
             child: const Text('拉取'),
           ),
         ],
@@ -310,9 +347,11 @@ class SourcesPage extends StatelessWidget {
     try {
       final added = await app.importFromUrl(url);
       if (!context.mounted) return;
-      _snack(context, added == 0
-          ? '订阅内容中的源都已存在，原有 ${app.sources.length} 个源保留'
-          : '订阅导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
+      _snack(
+          context,
+          added == 0
+              ? '订阅内容中的源都已存在，原有 ${app.sources.length} 个源保留'
+              : '订阅导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
     } catch (error) {
       if (!context.mounted) return;
       _snack(context, '订阅导入失败：$error');
@@ -334,7 +373,8 @@ class SourcesPage extends StatelessWidget {
       return;
     }
     final data = jsonEncode(app.sources.map((s) => s.toJson()).toList());
-    final name = 'CineHub-sources-${DateTime.now().millisecondsSinceEpoch}.json';
+    final name =
+        'CineHub-sources-${DateTime.now().millisecondsSinceEpoch}.json';
 
     String? saved;
     var failed = false;
@@ -357,7 +397,8 @@ class SourcesPage extends StatelessWidget {
     await _showExportFallback(context, app, data);
   }
 
-  Future<void> _showExportFallback(BuildContext context, AppState app, String data) async {
+  Future<void> _showExportFallback(
+      BuildContext context, AppState app, String data) async {
     var copied = false;
     await showDialog<void>(
       context: context,
@@ -371,7 +412,8 @@ class SourcesPage extends StatelessWidget {
             children: [
               Text(
                 '当前设备不支持直接另存文件，可以复制下面的 JSON 自行保存。',
-                style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+                style: TextStyle(
+                    fontSize: 12, color: context.palette.textSecondary),
               ),
               const SizedBox(height: 10),
               ConstrainedBox(
@@ -379,7 +421,8 @@ class SourcesPage extends StatelessWidget {
                 child: SingleChildScrollView(
                   child: SelectableText(
                     data,
-                    style: const TextStyle(fontSize: 11, height: 1.35, fontFamily: 'monospace'),
+                    style: const TextStyle(
+                        fontSize: 11, height: 1.35, fontFamily: 'monospace'),
                   ),
                 ),
               ),
@@ -492,7 +535,8 @@ class _EmptySources extends StatelessWidget {
           '添加苹果CMS v10 采集接口，或直接导入 TVBox 订阅配置。\n'
           '四种方式任选一种，导入后可以逐个编辑。',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, height: 1.6, color: palette.textSecondary),
+          style: TextStyle(
+              fontSize: 12, height: 1.6, color: palette.textSecondary),
         ),
         const SizedBox(height: 26),
         FilledButton.icon(
@@ -504,7 +548,8 @@ class _EmptySources extends StatelessWidget {
         Text(
           '或者从现成的配置导入',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, letterSpacing: 0.4, color: palette.textFaint),
+          style: TextStyle(
+              fontSize: 12, letterSpacing: 0.4, color: palette.textFaint),
         ),
         const SizedBox(height: 12),
         _EntryButton(
@@ -580,12 +625,16 @@ class _EntryButton extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                          fontSize: 14.5, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       subtitle,
-                      style: TextStyle(fontSize: 11.5, height: 1.45, color: palette.textSecondary),
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.45,
+                          color: palette.textSecondary),
                     ),
                   ],
                 ),
@@ -622,7 +671,8 @@ class _CheckBanner extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
+              style:
+                  TextStyle(fontSize: 12, color: context.palette.textSecondary),
             ),
           ),
         ],
@@ -658,7 +708,8 @@ class _HealthChip extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            const Text('检测中', style: TextStyle(fontSize: 10, color: Color(0xFF8FD6C8))),
+            const Text('检测中',
+                style: TextStyle(fontSize: 10, color: Color(0xFF8FD6C8))),
           ],
         ),
       );
@@ -744,7 +795,8 @@ class _SourceCard extends StatelessWidget {
                             source.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.w600),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -752,14 +804,16 @@ class _SourceCard extends StatelessWidget {
                         if (isCurrent) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: const Color(0x337FA6FF),
                               borderRadius: BorderRadius.circular(5),
                             ),
                             child: const Text(
                               '当前',
-                              style: TextStyle(fontSize: 10, color: Color(0xFFAFC8FF)),
+                              style: TextStyle(
+                                  fontSize: 10, color: Color(0xFFAFC8FF)),
                             ),
                           ),
                         ],
@@ -770,7 +824,8 @@ class _SourceCard extends StatelessWidget {
                       source.api,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11, color: context.palette.textFaint),
+                      style: TextStyle(
+                          fontSize: 11, color: context.palette.textFaint),
                     ),
                     if (unavailable && health.message.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -778,7 +833,8 @@ class _SourceCard extends StatelessWidget {
                         health.message,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: Color(0xFFE86A6A)),
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFFE86A6A)),
                       ),
                     ] else if (source.note.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -786,7 +842,8 @@ class _SourceCard extends StatelessWidget {
                         source.note,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11, color: context.palette.textSecondary),
+                        style: TextStyle(
+                            fontSize: 11, color: context.palette.textSecondary),
                       ),
                     ],
                   ],
