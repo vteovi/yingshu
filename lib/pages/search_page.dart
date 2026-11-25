@@ -1068,6 +1068,11 @@ class _SearchResultTile extends StatelessWidget {
         return InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: onTap,
+          // 和海报卡片一样：桌面端不要那层 hover 灰影
+          hoverColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          focusColor: Colors.transparent,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

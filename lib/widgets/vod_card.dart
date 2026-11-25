@@ -39,6 +39,14 @@ class VodCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
       onLongPress: onLongPress,
+      // 桌面端（Windows / macOS / Linux）鼠标悬停时 InkWell 会盖一层
+      // onSurface 半透明的 hover 遮罩，在深色海报上看着就是一块灰影，
+      // 而且会顺着卡片形状溢出到文字区，像是海报下面挂了层脏东西。
+      // 手机端没有鼠标，这层本来也不会出现，直接全部置空最省事。
+      hoverColor: Colors.transparent,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      focusColor: Colors.transparent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -106,7 +114,8 @@ class VodCard extends StatelessWidget {
                       footer!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11, color: theme.colorScheme.secondary),
+                      style: TextStyle(
+                          fontSize: 11, color: theme.colorScheme.secondary),
                     ),
                   ),
               ],
@@ -132,7 +141,10 @@ class _Poster extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         name.isEmpty ? '无海报' : name.substring(0, 1),
-        style: TextStyle(fontSize: 26, color: context.palette.textFaint, fontWeight: FontWeight.w700),
+        style: TextStyle(
+            fontSize: 26,
+            color: context.palette.textFaint,
+            fontWeight: FontWeight.w700),
       ),
     );
 
