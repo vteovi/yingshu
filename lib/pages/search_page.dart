@@ -90,6 +90,17 @@ class _SearchPageState extends State<SearchPage> {
   int _done = 0;
   int _total = 0;
 
+  /// 当前这轮已经取到的页码（各站点接口默认一页 20 条，靠「加载更多」往后翻）。
+  int _page = 1;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  /// 这一轮参与检索的站点和关键词，加载更多时沿用同一批。
+  List<CmsSource> _searchSources = const [];
+
+  /// 已上屏结果的去重键 '${站点id}|${影片id}'，翻页时新结果先过这里。
+  final Set<String> _seenKeys = {};
+
   @override
   void initState() {
     super.initState();
@@ -139,7 +150,8 @@ class _SearchPageState extends State<SearchPage> {
   double? _chipsOffsetForPage(double page) {
     final ids = _filterIds();
     if (ids.isEmpty) return null;
-    final viewport = _chipsViewportKey.currentContext?.findRenderObject() as RenderBox?;
+    final viewport =
+        _chipsViewportKey.currentContext?.findRenderObject() as RenderBox?;
     if (viewport == null) return null;
     final width = viewport.size.width;
 
@@ -213,6 +225,11 @@ class _SearchPageState extends State<SearchPage> {
       _hits = const [];
       _done = 0;
       _total = sources.length;
+      _page = 1;
+      _hasMore = true;
+      _loadingMore = false;
+      _searchSources = sources;
+      _seenKeys.clear();
     });
     // 新一轮搜索回到「全部」那一页
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -227,7 +244,11 @@ class _SearchPageState extends State<SearchPage> {
         if (!mounted || runId != _runId) return;
         setState(() {
           _done++;
-          if (hits.isNotEmpty) _hits = [..._hits, ...hits];
+          final fresh = <SearchHit>[];
+          for (final hit in hits) {
+            if (_seenKeys.add(_hitKey(hit))) fresh.add(hit);
+          }
+          if (fresh.isNotEmpty) _hits = [..._hits, ...fresh];
         });
       },
       onAllDone: () {
@@ -239,6 +260,119 @@ class _SearchPageState extends State<SearchPage> {
           }
         });
       },
+    );
+  }
+
+  /// 首次检索进行中的进度条：哪个源没回来就还在转。
+  Widget _buildProgress() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            '还在检索… 已完成 $_done/$_total 个源',
+            style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _hitKey(SearchHit hit) => '${hit.source.id}|${hit.vod.vodId}';
+
+  /// 各站点接口默认一页 20 条，底部「加载更多」按页往后翻，把新结果追加进来。
+  Future<void> _loadMore() async {
+    if (_loading || _loadingMore || !_hasMore) return;
+    final keyword = _lastKeyword?.trim() ?? '';
+    if (keyword.isEmpty || _searchSources.isEmpty) return;
+
+    final runId = _runId; // 翻页期间用户改了关键词：这一轮作废，直接丢
+    final nextPage = _page + 1;
+    setState(() => _loadingMore = true);
+
+    var added = 0;
+    await context.read<AppState>().api.searchAllStreaming(
+      _searchSources,
+      keyword,
+      page: nextPage,
+      onSourceDone: (hits, source) {
+        if (!mounted || runId != _runId) return;
+        final fresh = <SearchHit>[];
+        for (final hit in hits) {
+          if (_seenKeys.add(_hitKey(hit))) fresh.add(hit);
+        }
+        if (fresh.isEmpty) return;
+        added += fresh.length;
+        setState(() {
+          _hits = [..._hits, ...fresh];
+        });
+      },
+    );
+
+    if (!mounted || runId != _runId) return;
+    setState(() {
+      _loadingMore = false;
+      if (added == 0) {
+        // 所有站点这一页都没新东西了：到底了，别再让用户空点
+        _hasMore = false;
+      } else {
+        _page = nextPage;
+      }
+    });
+  }
+
+  /// 结果区底部：检索进度 / 加载更多 / 到底提示。
+  Widget _buildResultsFooter() {
+    if (_scope == SearchScope.local || _error != null || _hits.isEmpty) {
+      return const SizedBox(height: 28);
+    }
+    if (_loadingMore) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '正在加载第 ${_page + 1} 页…',
+              style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+            ),
+          ],
+        ),
+      );
+    }
+    if (!_hasMore) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Center(
+          child: Text(
+            '没有更多结果了 · 共 ${_hits.length} 条',
+            style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: _loadMore,
+          icon: const Icon(Icons.expand_more_rounded, size: 18),
+          label: const Text('加载更多'),
+        ),
+      ),
     );
   }
 
@@ -306,6 +440,10 @@ class _SearchPageState extends State<SearchPage> {
       _total = 1;
       _filterSourceId = null;
       _hits = hits;
+      _searchSources = const [];
+      _hasMore = false;
+      _loadingMore = false;
+      _seenKeys.clear();
       _error = hits.isEmpty ? '收藏和观看历史里没有「$keyword」。这个范围只查本机记录，不会联网。' : null;
     });
     // 结果换了，结果区回到第一页，免得停在上一次的位置
@@ -327,7 +465,9 @@ class _SearchPageState extends State<SearchPage> {
             IconButton(
               tooltip: _listMode ? '切换为海报网格' : '切换为列表',
               onPressed: () => setState(() => _listMode = !_listMode),
-              icon: Icon(_listMode ? Icons.grid_view_rounded : Icons.view_list_rounded),
+              icon: Icon(_listMode
+                  ? Icons.grid_view_rounded
+                  : Icons.view_list_rounded),
             ),
         ],
       ),
@@ -412,7 +552,9 @@ class _SearchPageState extends State<SearchPage> {
                 fontSize: 12,
                 height: 1.1,
                 fontWeight: _scope == scope ? FontWeight.w600 : FontWeight.w400,
-                color: _scope == scope ? palette.textPrimary : palette.textSecondary,
+                color: _scope == scope
+                    ? palette.textPrimary
+                    : palette.textSecondary,
               ),
             ),
             selected: _scope == scope,
@@ -422,7 +564,8 @@ class _SearchPageState extends State<SearchPage> {
               // 先作废还在跑的那一轮：否则旧范围的结果会继续追加进来，
               // 显示在新范围下面，看着就像「搜索串了」
               _runId++;
-              final rerun = _lastKeyword != null && _controller.text.trim().isNotEmpty;
+              final rerun =
+                  _lastKeyword != null && _controller.text.trim().isNotEmpty;
               setState(() {
                 _scope = scope;
                 // 换范围等于换一批结果，旧的先清掉，免得分不清是哪个范围搜出来的
@@ -490,25 +633,26 @@ class _SearchPageState extends State<SearchPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-          Padding(
-            padding: EdgeInsets.only(right: _chipsGap),
-            child: FilterChip(
-              key: _chipKeys.putIfAbsent(_allChipId, () => GlobalKey()),
-              label: Text('全部 ${_hits.length}'),
-              selected: _filterSourceId == null,
-              onSelected: (_) => _selectFilter(null),
-            ),
-          ),
-          for (final entry in sourceCounts.entries)
             Padding(
               padding: EdgeInsets.only(right: _chipsGap),
               child: FilterChip(
-                key: _chipKeys.putIfAbsent(_chipId(entry.key), () => GlobalKey()),
-                label: Text('${sourceNames[entry.key] ?? ''} ${entry.value}'),
-                selected: _filterSourceId == entry.key,
-                onSelected: (_) => _selectFilter(entry.key),
+                key: _chipKeys.putIfAbsent(_allChipId, () => GlobalKey()),
+                label: Text('全部 ${_hits.length}'),
+                selected: _filterSourceId == null,
+                onSelected: (_) => _selectFilter(null),
               ),
             ),
+            for (final entry in sourceCounts.entries)
+              Padding(
+                padding: EdgeInsets.only(right: _chipsGap),
+                child: FilterChip(
+                  key: _chipKeys.putIfAbsent(
+                      _chipId(entry.key), () => GlobalKey()),
+                  label: Text('${sourceNames[entry.key] ?? ''} ${entry.value}'),
+                  selected: _filterSourceId == entry.key,
+                  onSelected: (_) => _selectFilter(entry.key),
+                ),
+              ),
           ],
         ),
       ),
@@ -553,7 +697,8 @@ class _SearchPageState extends State<SearchPage> {
                   visualDensity: VisualDensity.compact,
                   onPressed: () {
                     _controller.text = keyword;
-                    _controller.selection = TextSelection.collapsed(offset: keyword.length);
+                    _controller.selection =
+                        TextSelection.collapsed(offset: keyword.length);
                     _search();
                   },
                   onDeleted: () => app.removeSearchHistory(keyword),
@@ -597,9 +742,11 @@ class _SearchPageState extends State<SearchPage> {
       if (_loading) {
         return LoadingView(text: searching);
       }
-      final history = context.select<AppState, List<String>>((s) => s.searchHistory);
+      final history =
+          context.select<AppState, List<String>>((s) => s.searchHistory);
       final empty = _error != null
-          ? EmptyView(icon: Icons.search_off_rounded, title: '没有结果', subtitle: _error)
+          ? EmptyView(
+              icon: Icons.search_off_rounded, title: '没有结果', subtitle: _error)
           : EmptyView(
               icon: Icons.travel_explore,
               title: '聚合搜索',
@@ -644,11 +791,15 @@ class _SearchPageState extends State<SearchPage> {
   Widget _buildResults(String? filterId) {
     final visible = filterId == null
         ? _hits
-        : _hits.where((hit) => hit.source.id == filterId).toList(growable: false);
+        : _hits
+            .where((hit) => hit.source.id == filterId)
+            .toList(growable: false);
 
-    final posterSize = context.select<AppState, PosterSize>((s) => s.posterSize);
+    final posterSize =
+        context.select<AppState, PosterSize>((s) => s.posterSize);
     final landscape = context.select<AppState, bool>((s) => s.useLandscapeCard);
-    final layout = context.select<AppState, PosterLayout>((s) => s.posterLayout);
+    final layout =
+        context.select<AppState, PosterLayout>((s) => s.posterLayout);
 
     Widget cardFor(BuildContext ctx, int i) {
       final hit = visible[i];
@@ -661,30 +812,14 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
 
-    String picUrl(int i) => normalizeImageUrl(visible[i].vod.pic, api: visible[i].source.api);
+    String picUrl(int i) =>
+        normalizeImageUrl(visible[i].vod.pic, api: visible[i].source.api);
 
-    final Widget status = _loading
-        ? Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '还在检索… 已完成 $_done/$_total 个源',
-                  style: TextStyle(fontSize: 12, color: context.palette.textFaint),
-                ),
-              ],
-            ),
-          )
-        : const SizedBox(height: 28);
-
-    final endPadding = SliverToBoxAdapter(child: status);
+    final Widget footer = _loading ? _buildProgress() : _buildResultsFooter();
+    final showFooter = visible.isNotEmpty;
+    final endPadding = SliverToBoxAdapter(
+      child: showFooter ? footer : const SizedBox(height: 28),
+    );
 
     // 列表样式：保留以前「海报 + 文字 + 来源」的横条，海报比例仍跟随设置
     if (_listMode) {
@@ -698,29 +833,10 @@ class _SearchPageState extends State<SearchPage> {
       }
       return ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-        itemCount: visible.length + (_loading ? 1 : 0),
+        itemCount: visible.length + (showFooter ? 1 : 0),
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, i) {
-          if (i >= visible.length) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '还在检索… 已完成 $_done/$_total 个源',
-                    style: TextStyle(fontSize: 12, color: context.palette.textFaint),
-                  ),
-                ],
-              ),
-            );
-          }
+          if (i >= visible.length) return footer;
           final hit = visible[i];
           return _SearchResultTile(
             hit: hit,
@@ -747,7 +863,8 @@ class _SearchPageState extends State<SearchPage> {
                   maxWidth: constraints.maxWidth,
                   landscape: landscape,
                   ratioOf: (i) =>
-                      PosterRatioStore.instance.ratioOf(picUrl(i)) ?? (landscape ? 16 / 10 : 2 / 3),
+                      PosterRatioStore.instance.ratioOf(picUrl(i)) ??
+                      (landscape ? 16 / 10 : 2 / 3),
                   onLayoutDone: (ctx) {
                     for (var i = 0; i < visible.length; i++) {
                       probePosterRatio(ctx, picUrl(i), visible[i].source.api);
@@ -777,7 +894,8 @@ class _SearchPageState extends State<SearchPage> {
                   landscape: landscape,
                 ),
                 delegate: SliverChildBuilderDelegate(
-                  (context, i) => VodCell(width: spec.width, child: cardFor(context, i)),
+                  (context, i) =>
+                      VodCell(width: spec.width, child: cardFor(context, i)),
                   childCount: visible.length,
                 ),
               ),
@@ -815,7 +933,6 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
-
 class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
     required this.hit,
@@ -842,11 +959,14 @@ class _SearchResultTile extends StatelessWidget {
       PosterSize.large => 88.0,
     };
     if (!actualRatio) {
-      return landscape ? Size(baseW * 1.75, baseW * 1.75 / 1.6) : Size(baseW, baseW * 1.5);
+      return landscape
+          ? Size(baseW * 1.75, baseW * 1.75 / 1.6)
+          : Size(baseW, baseW * 1.5);
     }
     // 原始比例：按海报自身比例定高度，允许在列表里高低错落
     final url = normalizeImageUrl(hit.vod.pic, api: hit.source.api);
-    final ratio = PosterRatioStore.instance.ratioOf(url) ?? (landscape ? 16 / 10 : 2 / 3);
+    final ratio =
+        PosterRatioStore.instance.ratioOf(url) ?? (landscape ? 16 / 10 : 2 / 3);
     final width = baseW + 8;
     final height = (width / ratio).clamp(56.0, 220.0);
     return Size(width, height);
@@ -873,7 +993,8 @@ class _SearchResultTile extends StatelessWidget {
                   child: vod.pic.isEmpty
                       ? ColoredBox(
                           color: context.palette.surfaceHigh,
-                          child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
+                          child: Icon(Icons.movie_outlined,
+                              color: context.palette.textFaint),
                         )
                       : Image(
                           image: PosterImageProvider(
@@ -885,7 +1006,8 @@ class _SearchResultTile extends StatelessWidget {
                           gaplessPlayback: true,
                           errorBuilder: (_, __, ___) => ColoredBox(
                             color: context.palette.surfaceHigh,
-                            child: Icon(Icons.movie_outlined, color: context.palette.textFaint),
+                            child: Icon(Icons.movie_outlined,
+                                color: context.palette.textFaint),
                           ),
                         ),
                 ),
@@ -899,14 +1021,20 @@ class _SearchResultTile extends StatelessWidget {
                       vod.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       vod.metaLine.isEmpty ? '暂无信息' : vod.metaLine,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: context.palette.textSecondary, height: 1.4),
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: context.palette.textSecondary,
+                          height: 1.4),
                     ),
                     if (vod.actor.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -914,12 +1042,14 @@ class _SearchResultTile extends StatelessWidget {
                         '主演：${vod.actor}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: context.palette.textFaint),
+                        style: TextStyle(
+                            fontSize: 12, color: context.palette.textFaint),
                       ),
                     ],
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: const Color(0xFF1A2436),
                         borderRadius: BorderRadius.circular(6),
@@ -928,7 +1058,8 @@ class _SearchResultTile extends StatelessWidget {
                         badge.isEmpty
                             ? '来源 · ${hit.source.name}'
                             : '$badge · ${hit.source.name}',
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF8FD6C8)),
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFF8FD6C8)),
                       ),
                     ),
                   ],
@@ -936,7 +1067,8 @@ class _SearchResultTile extends StatelessWidget {
               ),
               Padding(
                 padding: const EdgeInsets.only(left: 8, top: 34),
-                child: Icon(Icons.chevron_right, color: context.palette.textFaint, size: 20),
+                child: Icon(Icons.chevron_right,
+                    color: context.palette.textFaint, size: 20),
               ),
             ],
           ),
