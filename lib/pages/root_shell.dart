@@ -20,6 +20,10 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   int _index = 0;
 
+  /// 只有真正打开过的页才构建：一开始就把首页、收藏、历史、设置全建出来，
+  /// 小屏手机上第一帧要做的活太多，点标签会出现「点了没反应」的卡顿感。
+  final Set<int> _visited = {0};
+
   static const List<_Dest> _dests = [
     _Dest(Icons.home_outlined, Icons.home, '首页'),
     _Dest(Icons.favorite_border, Icons.favorite, '收藏'),
@@ -36,11 +40,11 @@ class _RootShellState extends State<RootShell> {
         ? const Color(0xFF4D8DFF)
         : const Color(0xFF2F6BFF);
 
-    final pages = const [
-      HomePage(),
-      FavoritesPage(),
-      HistoryPage(),
-      SettingsPage(),
+    final pages = [
+      const HomePage(),
+      if (_visited.contains(1)) const FavoritesPage() else const SizedBox.shrink(),
+      if (_visited.contains(2)) const HistoryPage() else const SizedBox.shrink(),
+      if (_visited.contains(3)) const SettingsPage() else const SizedBox.shrink(),
     ];
 
     if (!wide) {
@@ -48,7 +52,12 @@ class _RootShellState extends State<RootShell> {
         body: IndexedStack(index: _index, children: pages),
         bottomNavigationBar: _WeChatTabBar(
           index: _index,
-          onTap: (value) => setState(() => _index = value),
+          onTap: (value) {
+            setState(() {
+              _index = value;
+              _visited.add(value);
+            });
+          },
         ),
       );
     }
@@ -80,7 +89,10 @@ class _RootShellState extends State<RootShell> {
                 fontSize: 12,
                 color: context.palette.textSecondary,
               ),
-              onDestinationSelected: (value) => setState(() => _index = value),
+              onDestinationSelected: (value) => setState(() {
+                _index = value;
+                _visited.add(value);
+              }),
               destinations: [
                 for (final dest in _dests)
                   NavigationRailDestination(
@@ -129,21 +141,27 @@ class _WeChatTabBar extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(top: BorderSide(color: palette.border, width: 0.8)),
         ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 54,
-            child: Row(
-              children: [
-                for (var i = 0; i < _RootShellState._dests.length; i++)
-                  Expanded(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => onTap(i),
-                        // 去掉水波纹之外的任何选中态装饰
-                        splashFactory: NoSplash.splashFactory,
-                        highlightColor: Colors.transparent,
+        // 关键：整条都做成热区。以前 SafeArea 把系统手势条那段留白挡在外面，
+        // 手指落在最下面那一截是「死区」，小屏手机拇指刚好压在那儿，就点不中。
+        // 现在把留白放在每个格子的内容里，格子本身铺满整条高度。
+        child: SizedBox(
+          height: 54 + MediaQuery.paddingOf(context).bottom,
+          child: Row(
+            children: [
+              for (var i = 0; i < _RootShellState._dests.length; i++)
+                Expanded(
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      onTap: () => onTap(i),
+                      // 不要胶囊、不要水波纹，但按下时给一点点高亮，
+                      // 让人知道这一下确实点到了
+                      splashFactory: NoSplash.splashFactory,
+                      highlightColor: selectedColor.withValues(alpha: 0.10),
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          bottom: MediaQuery.paddingOf(context).bottom,
+                        ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -169,8 +187,8 @@ class _WeChatTabBar extends StatelessWidget {
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),
