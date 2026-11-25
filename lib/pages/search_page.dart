@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../core/image_cache.dart';
 import '../core/image_util.dart';
 import '../data/cms_api.dart';
+import '../models/cms_source.dart';
+import '../models/vod.dart';
 import '../state/app_state.dart';
 import '../widgets/state_views.dart';
 import '../widgets/vod_card.dart';
@@ -25,9 +27,28 @@ class SearchPage extends StatefulWidget {
   State<SearchPage> createState() => _SearchPageState();
 }
 
+/// 搜索范围。
+///
+/// 术语用「站点」而不是「订阅源」：订阅源是配置层面的一条接口记录，
+/// 而搜索时用户想的是「哪个网站有这部片」，站点更贴近这个心智。
+enum SearchScope {
+  all('全部站点', Icons.public_rounded, '在全部启用的站点里同时检索'),
+  current('当前站点', Icons.dns_outlined, '只查首页正在用的那一个站点'),
+  local('收藏与历史', Icons.bookmarks_outlined, '只在本机的收藏和观看记录里找，不联网');
+
+  const SearchScope(this.label, this.icon, this.hint);
+
+  final String label;
+  final IconData icon;
+  final String hint;
+}
+
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+
+  /// 搜索范围，默认「全部站点」。
+  SearchScope _scope = SearchScope.all;
 
   List<SearchHit> _hits = const [];
   bool _loading = false;
@@ -152,10 +173,24 @@ class _SearchPageState extends State<SearchPage> {
 
     final app = context.read<AppState>();
     app.addSearchHistory(keyword);
-    final sources = app.enabledSources;
+
+    // 收藏与历史：纯本地过滤，不发请求
+    if (_scope == SearchScope.local) {
+      _searchLocal(app, keyword);
+      return;
+    }
+
+    final source = app.currentSource;
+    final sources = _scope == SearchScope.current
+        ? <CmsSource>[if (source != null) source]
+        : app.enabledSources;
     if (sources.isEmpty) {
       setState(() {
-        _error = '没有启用的订阅源，请先在首页添加或启用订阅源';
+        _loading = false;
+        _hits = const [];
+        _error = _scope == SearchScope.current
+            ? '当前站点不可用（可能没启用或已被删除），换「全部站点」再试'
+            : '没有启用的站点，请先在首页添加或启用订阅源';
       });
       return;
     }
@@ -197,6 +232,68 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 只在本地记录里找：片名 / 备注包含关键词（不区分大小写），
+  /// 收藏与历史里重复的同一部片只留一条。
+  void _searchLocal(AppState app, String keyword) {
+    final needle = keyword.toLowerCase();
+    final hits = <SearchHit>[];
+    final seen = <String>{};
+
+    void add({
+      required String sourceId,
+      required String vodId,
+      required String name,
+      required String pic,
+      required String remarks,
+    }) {
+      final source = app.findSource(sourceId);
+      // 这条记录所属的站点已经删掉了，详情页打不开，就没有搜索的意义
+      if (source == null) return;
+      if (!seen.add('${source.id}|$vodId')) return;
+      hits.add(SearchHit(
+        source: source,
+        vod: VodItem(vodId: vodId, name: name, pic: pic, remarks: remarks),
+      ));
+    }
+
+    for (final item in app.favorites) {
+      if (item.name.toLowerCase().contains(needle) ||
+          item.remarks.toLowerCase().contains(needle)) {
+        add(
+          sourceId: item.sourceId,
+          vodId: item.vodId,
+          name: item.name,
+          pic: item.pic,
+          remarks: item.remarks,
+        );
+      }
+    }
+    for (final item in app.history) {
+      if (item.name.toLowerCase().contains(needle)) {
+        add(
+          sourceId: item.sourceId,
+          vodId: item.vodId,
+          name: item.name,
+          pic: item.pic,
+          remarks: '',
+        );
+      }
+    }
+
+    setState(() {
+      _loading = false;
+      _done = 1;
+      _total = 1;
+      _filterSourceId = null;
+      _hits = hits;
+      _error = hits.isEmpty ? '收藏和观看历史里没有「$keyword」。这个范围只查本机记录，不会联网。' : null;
+    });
+    // 结果换了，结果区回到第一页，免得停在上一次的位置
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pager.hasClients) _pager.jumpToPage(0);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -217,29 +314,36 @@ class _SearchPageState extends State<SearchPage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _search(),
-                    decoration: const InputDecoration(
-                      hintText: '输入片名 / 演员，回车搜索',
-                      prefixIcon: Icon(Icons.search, size: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (_) => _search(),
+                        decoration: const InputDecoration(
+                          hintText: '输入片名 / 演员，回车搜索',
+                          prefixIcon: Icon(Icons.search, size: 20),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      height: 46,
+                      child: FilledButton(
+                        onPressed: _loading ? null : _search,
+                        child: const Text('搜索'),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  height: 46,
-                  child: FilledButton(
-                    onPressed: _loading ? null : _search,
-                    child: const Text('搜索'),
-                  ),
-                ),
+                const SizedBox(height: 8),
+                _buildScopeBar(),
               ],
             ),
           ),
@@ -248,6 +352,65 @@ class _SearchPageState extends State<SearchPage> {
           Expanded(child: _buildBody(enabledCount)),
         ],
       ),
+    );
+  }
+
+  /// 搜索范围选择条：三个胶囊，切换后下一次搜索就按新范围走。
+  Widget _buildScopeBar() {
+    final app = context.read<AppState>();
+    final palette = context.palette;
+    final primary = Theme.of(context).colorScheme.primary;
+    final localCount = app.favorites.length + app.history.length;
+
+    String labelOf(SearchScope scope) {
+      switch (scope) {
+        case SearchScope.all:
+          return '${scope.label} ${app.enabledSources.length}';
+        case SearchScope.current:
+          return app.currentSource?.name ?? scope.label;
+        case SearchScope.local:
+          return '${scope.label} $localCount';
+      }
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        for (final scope in SearchScope.values)
+          ChoiceChip(
+            avatar: Icon(
+              scope.icon,
+              size: 15,
+              color: _scope == scope ? primary : palette.textSecondary,
+            ),
+            label: Text(
+              labelOf(scope),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.1,
+                fontWeight: _scope == scope ? FontWeight.w600 : FontWeight.w400,
+                color: _scope == scope ? palette.textPrimary : palette.textSecondary,
+              ),
+            ),
+            selected: _scope == scope,
+            visualDensity: VisualDensity.compact,
+            onSelected: (_) {
+              if (_scope == scope) return;
+              setState(() {
+                _scope = scope;
+                // 换范围等于换一批结果，旧的先清掉，免得分不清是哪个范围搜出来的
+                _hits = const [];
+                _error = null;
+                _done = 0;
+                _total = 0;
+                _filterSourceId = null;
+              });
+            },
+          ),
+      ],
     );
   }
 
@@ -397,9 +560,14 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildBody(int enabledCount) {
+    final searching = _scope == SearchScope.local
+        ? '正在收藏与历史中查找…'
+        : _scope == SearchScope.current
+            ? '正在当前站点中检索…'
+            : '正在 $enabledCount 个站点中检索，已完成 $_done 个…';
     if (_hits.isEmpty) {
       if (_loading) {
-        return LoadingView(text: '正在 $enabledCount 个源中检索，已完成 $_done 个…');
+        return LoadingView(text: searching);
       }
       final history = context.select<AppState, List<String>>((s) => s.searchHistory);
       final empty = _error != null
@@ -407,9 +575,13 @@ class _SearchPageState extends State<SearchPage> {
           : EmptyView(
               icon: Icons.travel_explore,
               title: '聚合搜索',
-              subtitle: enabledCount == 0
-                  ? '请先添加订阅源'
-                  : '将在 $enabledCount 个启用的订阅源中同时检索，结果会标注来源。',
+              subtitle: _scope == SearchScope.local
+                  ? '在收藏与观看历史里按片名查找，不联网。'
+                  : _scope == SearchScope.current
+                      ? '只查首页正在用的那个站点。'
+                      : enabledCount == 0
+                          ? '请先添加订阅源'
+                          : '将在 $enabledCount 个启用的站点中同时检索，结果会标注来源。',
             );
       if (history.isEmpty) return empty;
       // 有搜索记录时：空状态在上，下面列最近搜过的关键词
