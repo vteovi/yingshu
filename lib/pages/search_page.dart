@@ -592,72 +592,86 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 搜索范围选择条：三个胶囊，切换后下一次搜索就按新范围走。
   Widget _buildScopeBar() {
-    final app = context.read<AppState>();
     final palette = context.palette;
     final primary = Theme.of(context).colorScheme.primary;
-    final localCount = app.favorites.length + app.history.length;
 
-    String labelOf(SearchScope scope) {
-      switch (scope) {
-        case SearchScope.all:
-          return '${scope.label} ${app.enabledSources.length}';
-        case SearchScope.current:
-          return app.currentSource?.name ?? scope.label;
-        case SearchScope.local:
-          return '${scope.label} $localCount';
-      }
-    }
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      children: [
-        for (final scope in SearchScope.values)
-          ChoiceChip(
-            avatar: Icon(
-              scope.icon,
-              size: 15,
-              color: _scope == scope ? primary : palette.textSecondary,
-            ),
-            label: Text(
-              labelOf(scope),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.1,
-                fontWeight: _scope == scope ? FontWeight.w600 : FontWeight.w400,
-                color: _scope == scope
-                    ? palette.textPrimary
-                    : palette.textSecondary,
+    // 三个 Chip 放在 Wrap 里，在窄屏（360dp 左右）会折成两排。
+    // 改成一条等宽分段控件：去掉图标和数量，只留四个字，
+    // 每段 1/3 宽、单行不换行，任何手机宽度都不会折行，比三个浮着的
+    // Chip 看着也整一些。数量信息不影响选范围，就不占了。
+    return Container(
+      height: 36,
+      margin: const EdgeInsets.only(top: 2),
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: palette.surfaceHigh,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          for (final scope in SearchScope.values)
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _selectScope(scope),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _scope == scope
+                        ? primary.withValues(alpha: 0.18)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _scopeLabelOf(scope),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.1,
+                      fontWeight:
+                          _scope == scope ? FontWeight.w600 : FontWeight.w400,
+                      color: _scope == scope
+                          ? palette.textPrimary
+                          : palette.textSecondary,
+                    ),
+                  ),
+                ),
               ),
             ),
-            selected: _scope == scope,
-            visualDensity: VisualDensity.compact,
-            onSelected: (_) {
-              if (_scope == scope) return;
-              // 先作废还在跑的那一轮：否则旧范围的结果会继续追加进来，
-              // 显示在新范围下面，看着就像「搜索串了」
-              _runId++;
-              final rerun =
-                  _lastKeyword != null && _controller.text.trim().isNotEmpty;
-              setState(() {
-                _scope = scope;
-                // 换范围等于换一批结果，旧的先清掉，免得分不清是哪个范围搜出来的
-                _hits = const [];
-                _loading = false;
-                _error = null;
-                _done = 0;
-                _total = 0;
-                _filterSourceId = null;
-              });
-              // 已经搜过一次的话，换范围直接用手上的关键词重搜一遍，
-              // 不用用户再点一次「搜索」
-              if (rerun) unawaited(_search());
-            },
-          ),
-      ],
+        ],
+      ),
     );
+  }
+
+  String _scopeLabelOf(SearchScope scope) => switch (scope) {
+        SearchScope.all => '全部站点',
+        SearchScope.current => '当前站点',
+        SearchScope.local => '收藏与历史',
+      };
+
+  /// 切换搜索范围：作废上一轮、清掉结果，并用同一个关键词自动重搜。
+  void _selectScope(SearchScope scope) {
+    if (_scope == scope) return;
+    // 先作废还在跑的那一轮：否则旧范围的结果会继续追加进来，
+    // 显示在新范围下面，看着就像「搜索串了」
+    _runId++;
+    final rerun = _lastKeyword != null && _controller.text.trim().isNotEmpty;
+    setState(() {
+      _scope = scope;
+      // 换范围等于换一批结果，旧的先清掉，免得分不清是哪个范围搜出来的
+      _hits = const [];
+      _loading = false;
+      _error = null;
+      _done = 0;
+      _total = 0;
+      _filterSourceId = null;
+    });
+    // 已经搜过一次的话，换范围直接用手上的关键词重搜一遍，
+    // 不用用户再点一次「搜索」
+    if (rerun) unawaited(_search());
   }
 
   /// 筛选标签的 id 顺序：null 代表「全部」，后面按首次出结果的顺序列各来源。
