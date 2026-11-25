@@ -105,6 +105,11 @@ class _HomePageState extends State<HomePage> {
           onManage: () => _openSources(context),
         ),
         actions: [
+          IconButton(
+            tooltip: '聚合搜索',
+            onPressed: () => _openSearch(context),
+            icon: const Icon(Icons.search),
+          ),
           if (app.showViewSwitch)
             _PosterModeButton(
               mode: app.posterMode,
@@ -120,16 +125,14 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(width: 4),
         ],
       ),
-      // 悬浮搜索：不用去够右上角，拇指直接就能按到，进去就是输入状态
-      floatingActionButton: FloatingActionButton.small(
-        tooltip: '搜索影片',
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const SearchPage(focusOnOpen: true)),
-          );
-        },
-        child: const Icon(Icons.search, size: 22),
-      ),
+      // 悬浮搜索只给手机这种窄屏：大屏上右上角按钮够了，再多一个反而挡内容
+      floatingActionButton: MediaQuery.sizeOf(context).width < 600
+          ? FloatingActionButton(
+              tooltip: '搜索影片',
+              onPressed: () => _openSearch(context),
+              child: const Icon(Icons.search, size: 26),
+            )
+          : null,
       body: source == null
           ? EmptyView(
               badge: const BrandMark(size: 96),
@@ -195,6 +198,12 @@ class _HomePageState extends State<HomePage> {
                 );
               },
             ),
+    );
+  }
+
+  void _openSearch(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SearchPage(focusOnOpen: true)),
     );
   }
 

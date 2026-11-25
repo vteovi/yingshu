@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -49,6 +51,13 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 搜索范围，默认「全部站点」。
   SearchScope _scope = SearchScope.all;
+
+  /// 上一次真正搜出去的关键词：切换范围时用它决定要不要自动重搜，
+  /// 免得用户切完范围还要再点一次「搜索」。
+  String? _lastKeyword;
+
+  /// 本地搜索结果的来源标识：'${站点id}|${影片id}' → 「收藏」「看过」「收藏 · 看过」。
+  final Map<String, String> _localBadges = {};
 
   List<SearchHit> _hits = const [];
   bool _loading = false;
@@ -170,6 +179,7 @@ class _SearchPageState extends State<SearchPage> {
     final keyword = _controller.text.trim();
     if (keyword.isEmpty) return;
     _focusNode.unfocus();
+    _lastKeyword = keyword;
 
     final app = context.read<AppState>();
     app.addSearchHistory(keyword);
@@ -238,6 +248,7 @@ class _SearchPageState extends State<SearchPage> {
     final needle = keyword.toLowerCase();
     final hits = <SearchHit>[];
     final seen = <String>{};
+    _localBadges.clear();
 
     void add({
       required String sourceId,
@@ -245,15 +256,22 @@ class _SearchPageState extends State<SearchPage> {
       required String name,
       required String pic,
       required String remarks,
+      required String badge,
     }) {
       final source = app.findSource(sourceId);
       // 这条记录所属的站点已经删掉了，详情页打不开，就没有搜索的意义
       if (source == null) return;
-      if (!seen.add('${source.id}|$vodId')) return;
+      final key = '${source.id}|$vodId';
+      if (!seen.add(key)) {
+        // 同一部片既收藏又看过：合成一个标识，不再重复出一条
+        if (_localBadges[key] != badge) _localBadges[key] = '收藏 · 看过';
+        return;
+      }
       hits.add(SearchHit(
         source: source,
         vod: VodItem(vodId: vodId, name: name, pic: pic, remarks: remarks),
       ));
+      _localBadges[key] = badge;
     }
 
     for (final item in app.favorites) {
@@ -265,6 +283,7 @@ class _SearchPageState extends State<SearchPage> {
           name: item.name,
           pic: item.pic,
           remarks: item.remarks,
+          badge: '收藏',
         );
       }
     }
@@ -276,6 +295,7 @@ class _SearchPageState extends State<SearchPage> {
           name: item.name,
           pic: item.pic,
           remarks: '',
+          badge: '看过',
         );
       }
     }
@@ -399,15 +419,23 @@ class _SearchPageState extends State<SearchPage> {
             visualDensity: VisualDensity.compact,
             onSelected: (_) {
               if (_scope == scope) return;
+              // 先作废还在跑的那一轮：否则旧范围的结果会继续追加进来，
+              // 显示在新范围下面，看着就像「搜索串了」
+              _runId++;
+              final rerun = _lastKeyword != null && _controller.text.trim().isNotEmpty;
               setState(() {
                 _scope = scope;
                 // 换范围等于换一批结果，旧的先清掉，免得分不清是哪个范围搜出来的
                 _hits = const [];
+                _loading = false;
                 _error = null;
                 _done = 0;
                 _total = 0;
                 _filterSourceId = null;
               });
+              // 已经搜过一次的话，换范围直接用手上的关键词重搜一遍，
+              // 不用用户再点一次「搜索」
+              if (rerun) unawaited(_search());
             },
           ),
       ],
@@ -628,7 +656,7 @@ class _SearchPageState extends State<SearchPage> {
         vod: hit.vod,
         apiBase: hit.source.api,
         landscape: landscape,
-        footer: hit.source.name,
+        footer: _footerOf(hit),
         onTap: () => _openDetail(hit),
       );
     }
@@ -696,6 +724,7 @@ class _SearchPageState extends State<SearchPage> {
           final hit = visible[i];
           return _SearchResultTile(
             hit: hit,
+            badge: _badgeOf(hit),
             posterSize: posterSize,
             landscape: landscape,
             actualRatio: layout == PosterLayout.actual,
@@ -760,6 +789,18 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 本地结果里这条记录的来源标识（收藏 / 看过），非本地范围返回空串。
+  String _badgeOf(SearchHit hit) {
+    if (_scope != SearchScope.local) return '';
+    return _localBadges['${hit.source.id}|${hit.vod.vodId}'] ?? '';
+  }
+
+  /// 卡片底部那行小字：本地范围带上「收藏 / 看过」，远程范围只写站点名。
+  String _footerOf(SearchHit hit) {
+    final badge = _badgeOf(hit);
+    return badge.isEmpty ? hit.source.name : '$badge · ${hit.source.name}';
+  }
+
   void _openDetail(SearchHit hit) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -778,6 +819,7 @@ class _SearchPageState extends State<SearchPage> {
 class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
     required this.hit,
+    required this.badge,
     required this.posterSize,
     required this.landscape,
     required this.actualRatio,
@@ -785,6 +827,9 @@ class _SearchResultTile extends StatelessWidget {
   });
 
   final SearchHit hit;
+
+  /// 本地搜索结果的来源标识（收藏 / 看过 / 收藏 · 看过），远程搜索为空串。
+  final String badge;
   final PosterSize posterSize;
   final bool landscape;
   final bool actualRatio;
@@ -880,7 +925,9 @@ class _SearchResultTile extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        '来源 · ${hit.source.name}',
+                        badge.isEmpty
+                            ? '来源 · ${hit.source.name}'
+                            : '$badge · ${hit.source.name}',
                         style: const TextStyle(fontSize: 11, color: Color(0xFF8FD6C8)),
                       ),
                     ),
