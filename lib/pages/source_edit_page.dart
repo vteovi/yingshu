@@ -118,6 +118,37 @@ class _SourceEditPageState extends State<SourceEditPage> {
     }
   }
 
+  /// 编辑已有源时才能删：确认后连它的收藏/历史一起清理，然后退回列表。
+  Future<void> _delete() async {
+    final source = widget.source;
+    if (source == null) return;
+    final app = context.read<AppState>();
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除订阅源'),
+        content: Text('确定删除「${source.name}」吗？\n与它关联的收藏和观看记录也会一并清理。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    await app.removeSource(source.id);
+    navigator.pop();
+    final cleaned = app.lastRemovedSourceCleanup;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(cleaned > 0 ? '已删除，同时清理了 $cleaned 条收藏/历史记录' : '已删除'),
+      ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.source != null;
@@ -235,6 +266,17 @@ class _SourceEditPageState extends State<SourceEditPage> {
                     ),
                   ],
                 ),
+              ),
+            ],
+            if (isEdit) ...[
+              const SizedBox(height: 24),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: _delete,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('删除这个订阅源'),
+                style: TextButton.styleFrom(foregroundColor: const Color(0xFFE86A6A)),
               ),
             ],
           ],

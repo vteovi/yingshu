@@ -102,7 +102,7 @@ class SourcesPage extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                   child: Text(
-                    '点卡片可编辑 · 长按卡片可删除',
+                    '点卡片可编辑 · 长按可复制接口地址',
                     style: TextStyle(fontSize: 11, color: context.palette.textFaint),
                   ),
                 ),
@@ -121,7 +121,7 @@ class SourcesPage extends StatelessWidget {
                         onTap: () => _openEdit(context, source),
                         onCheck: () => _runSingleCheck(context, app, source),
                         onToggle: (value) => app.toggleSource(source.id, value),
-                        onDelete: () => _confirmDelete(context, app, source),
+                        onCopy: () => _copySourceApi(context, source),
                       );
                     },
                   ),
@@ -171,29 +171,22 @@ class SourcesPage extends StatelessWidget {
     }
   }
 
+  /// 长按卡片：把这个源的接口地址复制到剪贴板。
+  Future<void> _copySourceApi(BuildContext context, CmsSource source) async {
+    final api = source.api.trim();
+    if (api.isEmpty) {
+      _snack(context, '这个源没有填写接口地址');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: api));
+    if (!context.mounted) return;
+    _snack(context, '已复制「${source.name}」的接口地址');
+  }
+
   void _openEdit(BuildContext context, CmsSource? source) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => SourceEditPage(source: source)),
     );
-  }
-
-  Future<void> _confirmDelete(BuildContext context, AppState app, CmsSource source) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('删除订阅源'),
-        content: Text('确定删除「${source.name}」吗？\n与它关联的收藏和观看记录也会一并清理。'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('删除')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await app.removeSource(source.id);
-    if (!context.mounted) return;
-    final cleaned = app.lastRemovedSourceCleanup;
-    _snack(context, cleaned > 0 ? '已删除，同时清理了 $cleaned 条收藏/历史记录' : '已删除');
   }
 
   Future<void> _importText(BuildContext context, AppState app) async {
@@ -578,7 +571,7 @@ class _SourceCard extends StatelessWidget {
     required this.onTap,
     required this.onCheck,
     required this.onToggle,
-    required this.onDelete,
+    required this.onCopy,
   });
 
   final CmsSource source;
@@ -589,8 +582,8 @@ class _SourceCard extends StatelessWidget {
   final VoidCallback onCheck;
   final ValueChanged<bool> onToggle;
 
-  /// 长按整张卡片才走这里：弹出删除确认，避免行内多一个删除按钮太挤。
-  final VoidCallback onDelete;
+  /// 长按整张卡片才走这里：复制这个源的接口地址。
+  final VoidCallback onCopy;
 
   @override
   Widget build(BuildContext context) {
@@ -606,7 +599,7 @@ class _SourceCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        onLongPress: onDelete,
+        onLongPress: onCopy,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
           child: Row(
