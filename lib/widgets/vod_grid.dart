@@ -11,9 +11,19 @@ import '../theme/app_palette.dart';
 import 'state_views.dart';
 import 'vod_card.dart';
 import '../pages/detail_page.dart';
+import '../pages/search_page.dart';
 
 const double _horizontalPadding = 16.0;
 const double _spacing = 12.0;
+
+/// 长按海报 → 直接拿片名去聚合搜索，看看别的源有没有同名资源。
+void _openSearchForVod(BuildContext context, String name) {
+  final keyword = name.trim();
+  if (keyword.isEmpty) return;
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => SearchPage(initialKeyword: keyword)),
+  );
+}
 
 /// 大屏时把目标宽度按比例放大，让「小 / 中 / 大」在平板上也是三档真实差异。
 ///
@@ -389,6 +399,7 @@ class VodGridView extends StatelessWidget {
                       vod: vod,
                       apiBase: source.api,
                       landscape: landscape,
+                      onLongPress: () => _openSearchForVod(ctx, vod.name),
                       onTap: () => Navigator.of(ctx).push(
                         MaterialPageRoute(
                           builder: (_) => DetailPage(
@@ -424,6 +435,7 @@ class VodGridView extends StatelessWidget {
                         vod: vod,
                         apiBase: source.api,
                         landscape: landscape,
+                        onLongPress: () => _openSearchForVod(context, vod.name),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => DetailPage(
@@ -606,6 +618,7 @@ class _VodPagedGridState extends State<VodPagedGrid>
                       vod: vod,
                       apiBase: widget.source.api,
                       landscape: landscape,
+                      onLongPress: () => _openSearchForVod(ctx, vod.name),
                       onTap: () => Navigator.of(ctx).push(
                         MaterialPageRoute(
                           builder: (_) => DetailPage(
@@ -634,6 +647,7 @@ class _VodPagedGridState extends State<VodPagedGrid>
                           vod: vod,
                           apiBase: widget.source.api,
                           landscape: landscape,
+                          onLongPress: () => _openSearchForVod(context, vod.name),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => DetailPage(

@@ -141,7 +141,7 @@ class AppState extends ChangeNotifier {
   String _userAgent = kDefaultUserAgent;
   bool _autoPlayNext = true;
   bool _rememberProgress = true;
-  bool _skipIntroAd = true;
+  bool _skipIntroAd = false;
   ThemeMode _themeMode = ThemeMode.system;
   PosterSize _posterSize = PosterSize.medium;
   PosterMode _posterMode = PosterMode.portrait;
@@ -259,7 +259,8 @@ class AppState extends ChangeNotifier {
     _autoPlayNext = settings['autoPlayNext'] is bool ? settings['autoPlayNext'] as bool : true;
     _rememberProgress =
         settings['rememberProgress'] is bool ? settings['rememberProgress'] as bool : true;
-    _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : true;
+    // 跳过片头广告默认关闭：识错广告段会误跳正片，要用户自己开
+    _skipIntroAd = settings['skipIntroAd'] is bool ? settings['skipIntroAd'] as bool : false;
     _themeMode = _parseThemeMode(settings['themeMode']);
     _posterSize = PosterSize.parse(settings['posterSize']);
     _playerOrientation = PlayerOrientation.parse(settings['playerOrientation']);

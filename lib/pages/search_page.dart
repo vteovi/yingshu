@@ -13,7 +13,10 @@ import '../theme/app_palette.dart';
 
 /// 多源聚合搜索。
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  const SearchPage({super.key, this.initialKeyword});
+
+  /// 带关键词进来时（例如首页长按海报）直接搜这一个词，不用用户再输入。
+  final String? initialKeyword;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -58,6 +61,16 @@ class _SearchPageState extends State<SearchPage> {
   void initState() {
     super.initState();
     _pager.addListener(_syncChipsWithPager);
+
+    final initial = widget.initialKeyword?.trim() ?? '';
+    if (initial.isNotEmpty) {
+      _controller.text = initial;
+      _controller.selection = TextSelection.collapsed(offset: initial.length);
+      // 等首帧布局完成再发请求，不然 setState 会早于页面挂载
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _search();
+      });
+    }
   }
 
   @override

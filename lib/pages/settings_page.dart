@@ -222,7 +222,7 @@ class SettingsPage extends StatelessWidget {
                 secondary: const Icon(Icons.content_cut_rounded),
                 title: const Text('自动跳过片头广告'),
                 subtitle: Text(
-                  '识别 m3u8 里拼在正片前面的广告段并直接跳过（ExoPlayer 内核，拖动进度可靠）',
+                  '识别 m3u8 里拼在正片前面的广告段并直接跳过（默认关闭，识错会误跳正片）',
                   style: TextStyle(fontSize: 12, color: context.palette.textSecondary),
                 ),
                 value: app.skipIntroAd,
