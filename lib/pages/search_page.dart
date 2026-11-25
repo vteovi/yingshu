@@ -90,9 +90,13 @@ class _SearchPageState extends State<SearchPage> {
   int _done = 0;
   int _total = 0;
 
-  /// 当前这轮已经取到的页码（各站点接口默认一页 20 条，靠「加载更多」往后翻）。
-  int _page = 1;
-  bool _hasMore = true;
+  /// 每个站点各自记页码：接口默认一页 20 条，翻页时按站点独立递增，
+  /// 这样停在某个站点的标签下点「加载更多」只翻这个站点，不会把别人的页码带乱。
+  final Map<String, int> _sourcePages = {};
+
+  /// 已经翻到底（下一页没有新结果）的站点。
+  final Set<String> _exhausted = {};
+
   bool _loadingMore = false;
 
   /// 这一轮参与检索的站点和关键词，加载更多时沿用同一批。
@@ -225,11 +229,14 @@ class _SearchPageState extends State<SearchPage> {
       _hits = const [];
       _done = 0;
       _total = sources.length;
-      _page = 1;
-      _hasMore = true;
       _loadingMore = false;
       _searchSources = sources;
       _seenKeys.clear();
+      _sourcePages.clear();
+      _exhausted.clear();
+      for (final source in sources) {
+        _sourcePages[source.id] = 1;
+      }
     });
     // 新一轮搜索回到「全部」那一页
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -287,49 +294,58 @@ class _SearchPageState extends State<SearchPage> {
 
   String _hitKey(SearchHit hit) => '${hit.source.id}|${hit.vod.vodId}';
 
-  /// 各站点接口默认一页 20 条，底部「加载更多」按页往后翻，把新结果追加进来。
-  Future<void> _loadMore() async {
-    if (_loading || _loadingMore || !_hasMore) return;
+  /// 各站点接口默认一页 20 条。底部「加载更多」按站点各自翻页：
+  /// [filterId] 为 null（「全部」标签）时翻所有还没到底的站点；
+  /// 停在某个站点标签时只翻这一个站点，别的站点页码原封不动。
+  Future<void> _loadMore(String? filterId) async {
+    if (_loading || _loadingMore) return;
     final keyword = _lastKeyword?.trim() ?? '';
     if (keyword.isEmpty || _searchSources.isEmpty) return;
 
-    final runId = _runId; // 翻页期间用户改了关键词：这一轮作废，直接丢
-    final nextPage = _page + 1;
+    final targets = _searchSources
+        .where((s) => !_exhausted.contains(s.id))
+        .where((s) => filterId == null || s.id == filterId)
+        .toList(growable: false);
+    if (targets.isEmpty) return;
+
+    final api = context.read<AppState>().api;
+    final runId = _runId; // 翻页期间用户换了关键词：这一轮作废，结果直接丢
     setState(() => _loadingMore = true);
 
-    var added = 0;
-    await context.read<AppState>().api.searchAllStreaming(
-      _searchSources,
-      keyword,
-      page: nextPage,
-      onSourceDone: (hits, source) {
-        if (!mounted || runId != _runId) return;
-        final fresh = <SearchHit>[];
-        for (final hit in hits) {
-          if (_seenKeys.add(_hitKey(hit))) fresh.add(hit);
-        }
-        if (fresh.isEmpty) return;
-        added += fresh.length;
-        setState(() {
+    await Future.wait(targets.map((source) async {
+      final nextPage = (_sourcePages[source.id] ?? 1) + 1;
+      var pageHits = const <SearchHit>[];
+      try {
+        final result = await api.search(source, keyword, page: nextPage);
+        pageHits = result.videos
+            .map((vod) => SearchHit(source: source, vod: vod))
+            .toList(growable: false);
+      } catch (_) {
+        pageHits = const <SearchHit>[];
+      }
+      if (!mounted || runId != _runId) return;
+
+      final fresh = <SearchHit>[];
+      for (final hit in pageHits) {
+        if (_seenKeys.add(_hitKey(hit))) fresh.add(hit);
+      }
+      setState(() {
+        if (fresh.isEmpty) {
+          // 这一页没有新东西：这个站点到底了，下次不再翻它
+          _exhausted.add(source.id);
+        } else {
+          _sourcePages[source.id] = nextPage;
           _hits = [..._hits, ...fresh];
-        });
-      },
-    );
+        }
+      });
+    }));
 
     if (!mounted || runId != _runId) return;
-    setState(() {
-      _loadingMore = false;
-      if (added == 0) {
-        // 所有站点这一页都没新东西了：到底了，别再让用户空点
-        _hasMore = false;
-      } else {
-        _page = nextPage;
-      }
-    });
+    setState(() => _loadingMore = false);
   }
 
   /// 结果区底部：检索进度 / 加载更多 / 到底提示。
-  Widget _buildResultsFooter() {
+  Widget _buildResultsFooter(String? filterId, int visibleCount) {
     if (_scope == SearchScope.local || _error != null || _hits.isEmpty) {
       return const SizedBox(height: 28);
     }
@@ -346,19 +362,23 @@ class _SearchPageState extends State<SearchPage> {
             ),
             const SizedBox(width: 10),
             Text(
-              '正在加载第 ${_page + 1} 页…',
+              filterId == null ? '正在加载更多…' : '正在加载这个站点的下一页…',
               style: TextStyle(fontSize: 12, color: context.palette.textFaint),
             ),
           ],
         ),
       );
     }
-    if (!_hasMore) {
+    final hasMore = _searchSources.any(
+      (s) =>
+          !_exhausted.contains(s.id) && (filterId == null || s.id == filterId),
+    );
+    if (!hasMore) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Center(
           child: Text(
-            '没有更多结果了 · 共 ${_hits.length} 条',
+            '没有更多结果了 · 共 $visibleCount 条',
             style: TextStyle(fontSize: 12, color: context.palette.textFaint),
           ),
         ),
@@ -368,9 +388,9 @@ class _SearchPageState extends State<SearchPage> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       child: Center(
         child: OutlinedButton.icon(
-          onPressed: _loadMore,
+          onPressed: () => _loadMore(filterId),
           icon: const Icon(Icons.expand_more_rounded, size: 18),
-          label: const Text('加载更多'),
+          label: Text(filterId == null ? '加载更多' : '加载更多（本站点）'),
         ),
       ),
     );
@@ -441,7 +461,8 @@ class _SearchPageState extends State<SearchPage> {
       _filterSourceId = null;
       _hits = hits;
       _searchSources = const [];
-      _hasMore = false;
+      _sourcePages.clear();
+      _exhausted.clear();
       _loadingMore = false;
       _seenKeys.clear();
       _error = hits.isEmpty ? '收藏和观看历史里没有「$keyword」。这个范围只查本机记录，不会联网。' : null;
@@ -815,7 +836,9 @@ class _SearchPageState extends State<SearchPage> {
     String picUrl(int i) =>
         normalizeImageUrl(visible[i].vod.pic, api: visible[i].source.api);
 
-    final Widget footer = _loading ? _buildProgress() : _buildResultsFooter();
+    final Widget footer = _loading
+        ? _buildProgress()
+        : _buildResultsFooter(filterId, visible.length);
     final showFooter = visible.isNotEmpty;
     final endPadding = SliverToBoxAdapter(
       child: showFooter ? footer : const SizedBox(height: 28),
