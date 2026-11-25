@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,7 +10,6 @@ import '../models/cms_source.dart';
 import '../models/source_health.dart';
 import '../state/app_state.dart';
 import '../widgets/brand_mark.dart';
-import '../widgets/state_views.dart';
 import 'source_edit_page.dart';
 import '../theme/app_palette.dart';
 
@@ -79,12 +77,11 @@ class SourcesPage extends StatelessWidget {
             : null,
       ),
       body: sources.isEmpty
-          ? EmptyView(
-              badge: const BrandMark(size: 88),
-              title: '影枢还没有订阅源',
-              subtitle: '添加苹果CMS v10 采集接口地址，\n例如 https://你的域名/api.php/provide/vod/',
-              actionLabel: '添加第一个源',
-              onAction: () => _openEdit(context, null),
+          ? _EmptySources(
+              onManual: () => _openEdit(context, null),
+              onUrl: () => _importUrl(context, app),
+              onText: () => _importText(context, app),
+              onFile: () => _importFile(context, app),
             )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -246,39 +243,25 @@ class SourcesPage extends StatelessWidget {
   }
 
   /// 本地 JSON / TXT 文件导入（TVBox 配置文件、影枢导出文件都可以）。
+  ///
+  /// 走 [FileExport.pickText]：安卓用系统「打开文件」(SAF)，桌面用打开对话框，
+  /// 和「恢复数据」共用同一条原生通道，不用额外依赖插件。
   Future<void> _importFile(BuildContext context, AppState app) async {
-    const typeGroup = XTypeGroup(
-      label: '配置文件',
-      extensions: <String>['json', 'txt'],
-    );
-
-    XFile? picked;
+    String? text;
     try {
-      picked = await openFile(acceptedTypeGroups: const <XTypeGroup>[typeGroup]);
+      text = await FileExport.pickText(extensions: const ['json', 'txt']);
     } catch (error) {
       if (!context.mounted) return;
       _snack(context, '打开文件选择器失败：$error');
       return;
     }
-    if (picked == null) return;
-
-    String text;
-    try {
-      text = await picked.readAsString();
-    } catch (error) {
-      if (!context.mounted) return;
-      _snack(context, '读取文件失败：$error');
-      return;
-    }
+    if (text == null) return; // 用户取消
 
     final bundle = parseSourceBundle(text);
-    final name = picked.name;
     if (bundle.isEmpty) {
       if (!context.mounted) return;
       final hint = describeUnsupportedBody(text);
-      _snack(context, hint == null
-          ? '「$name」里没有找到可用的接口地址'
-          : '「$name」导入失败：$hint');
+      _snack(context, hint == null ? '这个文件里没有找到可用的接口地址' : '导入失败：$hint');
       return;
     }
 
@@ -289,9 +272,12 @@ class SourcesPage extends StatelessWidget {
       } catch (_) {}
     }
     if (!context.mounted) return;
-    _snack(context, added == 0
-        ? '「$name」里的源都已存在，原有 ${app.sources.length} 个源保留'
-        : '从「$name」导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留');
+    _snack(
+      context,
+      added == 0
+          ? '文件里的源都已存在，原有 ${app.sources.length} 个源保留'
+          : '从文件导入成功，新增 $added 个源 · 原有 ${app.sources.length - added} 个源保留',
+    );
   }
 
   Future<void> _importUrl(BuildContext context, AppState app) async {
@@ -467,6 +453,149 @@ class SourcesPage extends StatelessWidget {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+/// 一个源都没有时的引导页：把四种添加方式都摊开，用户按自己的情况点。
+///
+/// 之前只给一个「添加第一个源」，等于默认所有人都是手动填接口地址；
+/// 实际大多数人手上是 TVBox 订阅链接或者一份配置文件。
+class _EmptySources extends StatelessWidget {
+  const _EmptySources({
+    required this.onManual,
+    required this.onUrl,
+    required this.onText,
+    required this.onFile,
+  });
+
+  final VoidCallback onManual;
+  final VoidCallback onUrl;
+  final VoidCallback onText;
+  final VoidCallback onFile;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(28, 8, 28, 32),
+      children: [
+        const SizedBox(height: 24),
+        const Center(child: BrandMark(size: 84)),
+        const SizedBox(height: 18),
+        const Text(
+          '还没有订阅源',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '添加苹果CMS v10 采集接口，或直接导入 TVBox 订阅配置。\n'
+          '四种方式任选一种，导入后可以逐个编辑。',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, height: 1.6, color: palette.textSecondary),
+        ),
+        const SizedBox(height: 26),
+        FilledButton.icon(
+          onPressed: onManual,
+          icon: const Icon(Icons.add_link_rounded),
+          label: const Text('手动添加一个接口'),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          '或者从现成的配置导入',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, letterSpacing: 0.4, color: palette.textFaint),
+        ),
+        const SizedBox(height: 12),
+        _EntryButton(
+          icon: Icons.link_rounded,
+          title: '从订阅链接导入',
+          subtitle: '支持 TVBox 订阅地址，也支持本站导出的源列表链接',
+          onTap: onUrl,
+        ),
+        const SizedBox(height: 10),
+        _EntryButton(
+          icon: Icons.content_paste_rounded,
+          title: '粘贴文本 / TVBox 配置导入',
+          subtitle: '把整段 JSON 或 TVBox 配置（含 sites / urls）粘进来即可',
+          onTap: onText,
+        ),
+        const SizedBox(height: 10),
+        _EntryButton(
+          icon: Icons.folder_open_rounded,
+          title: '从本地文件导入',
+          subtitle: '选择 .json / .txt 配置文件，用系统文件管理器挑选',
+          onTap: onFile,
+        ),
+      ],
+    );
+  }
+}
+
+/// 空状态里的整行入口按钮：图标 + 标题 + 说明，整块都能点。
+class _EntryButton extends StatelessWidget {
+  const _EntryButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final primary = Theme.of(context).colorScheme.primary;
+    return Material(
+      color: palette.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: palette.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 20, color: primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 11.5, height: 1.45, color: palette.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: palette.textFaint),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
