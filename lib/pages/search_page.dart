@@ -686,10 +686,10 @@ class _SearchPageState extends State<SearchPage> {
 
   Widget _buildFilters() {
     final sourceCounts = <String, int>{};
-    final sourceNames = <String, String>{};
+    final sourceLabels = <String, String>{};
     for (final hit in _hits) {
       sourceCounts[hit.source.id] = (sourceCounts[hit.source.id] ?? 0) + 1;
-      sourceNames[hit.source.id] = hit.source.name;
+      sourceLabels[hit.source.id] = _sourceLabelOf(hit);
     }
 
     final ids = _filterIds();
@@ -723,7 +723,8 @@ class _SearchPageState extends State<SearchPage> {
                 child: FilterChip(
                   key: _chipKeys.putIfAbsent(
                       _chipId(entry.key), () => GlobalKey()),
-                  label: Text('${sourceNames[entry.key] ?? ''} ${entry.value}'),
+                  label:
+                      Text('${sourceLabels[entry.key] ?? ''} ${entry.value}'),
                   selected: _filterSourceId == entry.key,
                   onSelected: (_) => _selectFilter(entry.key),
                 ),
@@ -927,6 +928,7 @@ class _SearchPageState extends State<SearchPage> {
           return _SearchResultTile(
             hit: hit,
             badge: _badgeOf(hit),
+            sourceLabel: _sourceLabelOf(hit),
             posterSize: posterSize,
             landscape: landscape,
             actualRatio: layout == PosterLayout.actual,
@@ -993,6 +995,10 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 结果里显示站点名；「当前站点」范围下站点名是多余的，统一显示「当前站点」。
+  String _sourceLabelOf(SearchHit hit) =>
+      _scope == SearchScope.current ? '当前站点' : hit.source.name;
+
   /// 本地结果里这条记录的来源标识（收藏 / 看过），非本地范围返回空串。
   String _badgeOf(SearchHit hit) {
     if (_scope != SearchScope.local) return '';
@@ -1002,7 +1008,8 @@ class _SearchPageState extends State<SearchPage> {
   /// 卡片底部那行小字：本地范围带上「收藏 / 看过」，远程范围只写站点名。
   String _footerOf(SearchHit hit) {
     final badge = _badgeOf(hit);
-    return badge.isEmpty ? hit.source.name : '$badge · ${hit.source.name}';
+    final label = _sourceLabelOf(hit);
+    return badge.isEmpty ? label : '$badge · $label';
   }
 
   void _openDetail(SearchHit hit) {
@@ -1023,6 +1030,7 @@ class _SearchResultTile extends StatelessWidget {
   const _SearchResultTile({
     required this.hit,
     required this.badge,
+    required this.sourceLabel,
     required this.posterSize,
     required this.landscape,
     required this.actualRatio,
@@ -1033,6 +1041,9 @@ class _SearchResultTile extends StatelessWidget {
 
   /// 本地搜索结果的来源标识（收藏 / 看过 / 收藏 · 看过），远程搜索为空串。
   final String badge;
+
+  /// 来源名：一般是站点名，「当前站点」范围下由调用方传「当前站点」。
+  final String sourceLabel;
   final PosterSize posterSize;
   final bool landscape;
   final bool actualRatio;
@@ -1147,8 +1158,8 @@ class _SearchResultTile extends StatelessWidget {
                       ),
                       child: Text(
                         badge.isEmpty
-                            ? '来源 · ${hit.source.name}'
-                            : '$badge · ${hit.source.name}',
+                            ? '来源 · $sourceLabel'
+                            : '$badge · $sourceLabel',
                         style: const TextStyle(
                             fontSize: 11, color: Color(0xFF8FD6C8)),
                       ),
