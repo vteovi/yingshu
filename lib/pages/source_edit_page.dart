@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../core/constants.dart';
@@ -26,6 +27,7 @@ class _SourceEditPageState extends State<SourceEditPage> {
   bool _testing = false;
   bool? _testOk;
   String? _testResult;
+  bool _clipFilled = false;
 
   @override
   void initState() {
@@ -34,6 +36,49 @@ class _SourceEditPageState extends State<SourceEditPage> {
     _apiController = TextEditingController(text: widget.source?.api ?? '');
     _noteController = TextEditingController(text: widget.source?.note ?? '');
     _enabled = widget.source?.enabled ?? true;
+    // 只是新建时才预填，编辑已有源不要把手里的地址冲掉
+    if (widget.source == null) _prefillFromClipboard();
+  }
+
+  /// 新建源时把剪贴板里的接口地址捞过来，省得用户来回切应用复制粘贴。
+  /// 只有剪贴板里确实是个 http(s) 地址才填，别的文字一概不动。
+  Future<void> _prefillFromClipboard() async {
+    if (_apiController.text.trim().isNotEmpty) return;
+    String? raw;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      raw = data?.text;
+    } catch (_) {
+      return; // 桌面端剪贴板不可用时静默跳过
+    }
+    final candidate = _normalizeClipUrl(raw);
+    if (candidate == null || !mounted) return;
+    setState(() {
+      _apiController.text = candidate;
+      _apiController.selection = TextSelection.collapsed(
+        offset: candidate.length,
+      );
+      _clipFilled = true;
+    });
+  }
+
+  /// 从剪贴板文本里挑出第一个像接口地址的片段；没有协议的补 https://。
+  String? _normalizeClipUrl(String? raw) {
+    final text = (raw ?? '').trim();
+    if (text.isEmpty) return null;
+    for (final token in text.split(RegExp(r'\s+'))) {
+      var value = token.trim();
+      if (value.length < 10) continue;
+      if (!value.startsWith('http://') && !value.startsWith('https://')) {
+        // 形如 host.com/api.php/provide/vod/ 的裸地址，前面补协议
+        if (value.contains('://') || !value.contains('.')) continue;
+        value = 'https://$value';
+      }
+      final uri = Uri.tryParse(value);
+      if (uri == null || uri.host.isEmpty || !uri.host.contains('.')) continue;
+      return value;
+    }
+    return null;
   }
 
   @override
@@ -184,6 +229,29 @@ class _SourceEditPageState extends State<SourceEditPage> {
                 return null;
               },
             ),
+            if (_clipFilled)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, left: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.content_paste_rounded,
+                      size: 14,
+                      color: context.palette.textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '地址已从剪贴板填入，可直接点「测试」验一下',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.palette.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 14),
             TextFormField(
               controller: _nameController,
