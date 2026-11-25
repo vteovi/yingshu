@@ -9,6 +9,8 @@ on:
       - 'assets/**'
       - 'pubspec.yaml'
       - 'tool/**'
+      - 'windows/**'
+      - 'android/**'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -48,7 +50,14 @@ jobs:
       - name: 生成平台壳
         run: |
           flutter create --platforms=android,ios,windows,macos --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
-          cp -r "$RUNNER_TEMP/shell/android" "$RUNNER_TEMP/shell/ios" "$RUNNER_TEMP/shell/windows" "$RUNNER_TEMP/shell/macos" .
+          # android / windows / macos 壳已经在仓库里（带着品牌改动），只补缺的
+          for p in android ios windows macos; do
+            if [ -d "$p" ]; then
+              echo "保留仓库里的 $p/"
+            else
+              cp -r "$RUNNER_TEMP/shell/$p" .
+            fi
+          done
           flutter pub get
 
       - name: 写入品牌信息与图标
@@ -120,7 +129,14 @@ jobs:
         shell: bash
         run: |
           flutter create --platforms=android,ios,windows --org com.example --project-name yingshu "$RUNNER_TEMP/shell"
-          cp -r "$RUNNER_TEMP/shell/android" "$RUNNER_TEMP/shell/ios" "$RUNNER_TEMP/shell/windows" .
+          # android / windows 壳已经在仓库里（窗口标题、exe 名都改过），只补缺的
+          for p in android ios windows; do
+            if [ -d "$p" ]; then
+              echo "保留仓库里的 $p/"
+            else
+              cp -r "$RUNNER_TEMP/shell/$p" .
+            fi
+          done
           flutter pub get
 
       - name: 生成应用图标
