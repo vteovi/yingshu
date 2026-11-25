@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/lan_sync.dart';
+import '../core/screen_wake.dart';
 import '../state/app_state.dart';
 import '../theme/app_palette.dart';
 
@@ -126,6 +127,8 @@ class _LanSyncPageState extends State<LanSyncPage>
       _stopAnnounce = stopAnnounce;
       _sharing = true;
     });
+    // 共享期间息屏会冻结后台网络，对方会一直等到超时
+    await ScreenWake.acquire();
   }
 
   void _stopSharing() {
@@ -133,6 +136,7 @@ class _LanSyncPageState extends State<LanSyncPage>
     _stopAnnounce = null;
     _server?.stop();
     _server = null;
+    ScreenWake.release();
     if (mounted) setState(() => _sharing = false);
   }
 
@@ -187,6 +191,7 @@ class _LanSyncPageState extends State<LanSyncPage>
       _phase = '正在连接 $host:$port…';
       _progress = null;
     });
+    await ScreenWake.acquire();
     try {
       final data = await SyncClient.fetch(
         host,
@@ -253,6 +258,7 @@ class _LanSyncPageState extends State<LanSyncPage>
         setState(() => _syncResult = '同步失败：${SyncClient.describeError(error, host, port)}');
       }
     } finally {
+      await ScreenWake.release();
       if (mounted) {
         setState(() {
           _syncing = false;
@@ -416,8 +422,7 @@ class _LanSyncPageState extends State<LanSyncPage>
                 Text('端口：${_server?.port ?? kSyncHttpPort}', style: const TextStyle(fontSize: 13)),
                 const SizedBox(height: 8),
                 Text(
-                  '同步期间请让本机屏幕保持常亮。息屏后系统会冻结后台网络，'
-                  '对方会一直等到超时才报错。',
+                  '共享期间本机屏幕会保持常亮（息屏后系统会冻结后台网络，对方会一直等到超时）。',
                   style: TextStyle(fontSize: 11.5, height: 1.5, color: palette.textSecondary),
                 ),
               ],
